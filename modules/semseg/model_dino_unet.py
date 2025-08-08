@@ -1,11 +1,13 @@
+from typing import TYPE_CHECKING
+
 import torch
 import torch.nn as nn
 import torch.hub
 import torch.nn.functional as F
-from molmo_testing.models.semseg.model_base import Model_Base
-from typing import TYPE_CHECKING
+
+from overseec.modules.semseg.model_base import Model_Base
 if TYPE_CHECKING:
-    from molmo_testing.models.semseg_config import SemSegConfig, DinoUNetConfig
+    from overseec.modules.semseg.semseg_config import SemSegConfig, DinoUNetConfig
 
 
 class DinoUNet(Model_Base):

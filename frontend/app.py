@@ -56,7 +56,7 @@ except ImportError:
     HAS_PYNVML = False
 
 from overseec.overseec_config import AllConfig
-from overseec.modules.vllm_client import overseec_query_llm
+from overseec.modules.llm.vllm_client import overseec_query_llm
 from overseec.OVerSeeC import OVerSeeC
 
 # --- Live Console Log Capture ---

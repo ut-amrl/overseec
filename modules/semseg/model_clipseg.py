@@ -1,10 +1,11 @@
-import torch
-import torch.nn as nn
 from typing import TYPE_CHECKING
-from molmo_testing.models.semseg.model_base import Model_Base
-if TYPE_CHECKING:
-    from molmo_testing.models.semseg_config import SemSegConfig, CLIPSegConfig
+
+import torch
 from transformers import CLIPSegProcessor, CLIPSegForImageSegmentation
+
+from overseec.modules.semseg.model_base import Model_Base
+if TYPE_CHECKING:
+    from overseec.modules.semseg.semseg_config import SemSegConfig, CLIPSegConfig
 
 
 class CLIPSeg(Model_Base):

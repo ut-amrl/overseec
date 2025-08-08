@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
@@ -6,11 +8,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from typing import TYPE_CHECKING
-from molmo_testing.models.semseg.utils import * 
 import pytorch_lightning as pl
+
+from overseec.modules.utils import * 
 if TYPE_CHECKING:
-    from molmo_testing.models.semseg_config import SemSegConfig, ModelConfig
+    from overseec.modules.semseg.semseg_config import SemSegConfig, ModelConfig
 
 class OVerSeeC_Semseg(pl.LightningModule):
     def __init__(self, 

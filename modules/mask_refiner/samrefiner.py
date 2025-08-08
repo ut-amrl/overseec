@@ -1,20 +1,16 @@
 import numpy as np
 import torch
-import cv2
-import os
-import matplotlib.pyplot as plt
-from PIL import Image
-# from segment_anything import sam_model_registry, SamPredictor
-from SAMRefiner.sam_refiner import sam_refiner_image_embedding
-from samrefiner_sam.utils.transforms import ResizeLongestSide
-from samrefiner_sam import sam_model_registry as samrefiner_model_registry
-from SAMRefiner.utils import prepare_image, extract_bboxes_expand, extract_points, extract_mask
 
-from concurrent.futures import ThreadPoolExecutor
+# from segment_anything import sam_model_registry, SamPredictor
+from overseec.modules.mask_refiner.SAMRefiner.sam_refiner import sam_refiner_image_embedding
+from overseec.modules.mask_refiner.SAMRefiner.samrefiner_sam.samrefiner_sam.utils.transforms import ResizeLongestSide
+from overseec.modules.mask_refiner.SAMRefiner.samrefiner_sam.samrefiner_sam import sam_model_registry as samrefiner_model_registry
+from overseec.modules.mask_refiner.SAMRefiner.utils import prepare_image
+
 import torch.nn as nn
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from molmo_testing.models.semseg_config import SAM_Exemplar_Config, SemSegConfig
+    from overseec.semseg_config import SAM_Exemplar_Config, SemSegConfig
     
 
 

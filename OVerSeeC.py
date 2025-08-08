@@ -1,22 +1,20 @@
 import argparse
-import cv2
-import torch
-import torch.nn as nn
-
-import numpy as np
-from torch.utils.data import Dataset, DataLoader
-
-from overseec.modules import *
-from overseec.modules.mask_refiner import *
-# from molmo_testing.models.mask_refiner import *
-
-from molmo_testing.satellite_cmap_scripts.satellite_cmap_cfg import AllConfig
-
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
-import threading
+
+import cv2
+import numpy as np
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
-from concurrent.futures import ThreadPoolExecutor
+from torch.utils.data import Dataset, DataLoader
+
+from overseec.modules.semseg import *
+from overseec.modules.mask_refiner import *
+from overseec.overseec_config import AllConfig
+
+
 
 model_dict = {
     "dinounet": DinoUNet,

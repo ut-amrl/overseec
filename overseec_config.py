@@ -1,8 +1,10 @@
-import os
-import torch
 from dataclasses import dataclass, field
-from overseec.semseg_config import *
+
 from torchvision.transforms import ToTensor, Normalize, Compose
+
+from overseec.modules.semseg.semseg_config import *
+from overseec.modules.mask_refiner.mask_refiner_config import *
+
 
 
 model_config_dict = {
@@ -59,8 +61,6 @@ class AllConfig:
 
     img_transform : Compose = None
     img_format : str = "RGB"
-
-
 
     semseg_tile_size : tuple = (512, 512)
     semseg_stride : int = 256

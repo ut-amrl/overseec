@@ -1,8 +1,7 @@
-import torch
 import torch.nn as nn
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from molmo_testing.models.semseg_config import SemSegConfig, ModelConfig
+    from overseec.semseg_config import SemSegConfig, ModelConfig
 
 class Model_Base(nn.Module):
     def __init__(self, 

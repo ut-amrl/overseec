@@ -1,7 +1,9 @@
 import os
-import numpy as np
-import molmo_testing
 from dataclasses import dataclass, field
+
+import numpy as np
+
+import overseec
 
 @dataclass
 class SemSegConfig:
@@ -136,7 +138,7 @@ class SAM_Exemplar_Config(Mask_RefinerConfig):
 
     def __post_init__(self,):
 
-        module_dir =  os.path.dirname(os.path.abspath(molmo_testing.__file__))
+        module_dir =  os.path.dirname(os.path.abspath(overseec.__file__))
         self.ckpt_path = f"{module_dir}/checkpoints/{self.ckpt_fname}"
 
 @dataclass
@@ -164,5 +166,5 @@ class SAMRefiner_Config(Mask_RefinerConfig):
             self.ckpt_fname : str = "sam_vit_b_01ec64.pth"
             self.model_type : str = "vit_b"
 
-        module_dir =  os.path.dirname(os.path.abspath(molmo_testing.__file__))
+        module_dir =  os.path.dirname(os.path.abspath(overseec.__file__))
         self.ckpt_path = f"{module_dir}/checkpoints/{self.ckpt_fname}"
