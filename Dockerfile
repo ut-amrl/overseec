@@ -7,7 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     HF_HOME=/opt/hf \
     HUGGINGFACE_HUB_CACHE=/opt/hf \
     TRANSFORMERS_CACHE=/opt/hf \
-    TORCH_HOME=/opt/torch
+    TORCH_HOME=/opt/torch \
+    PYTHONPATH=/workspace:$PYTHONPATH   # add /workspace to Python path
 
 # Base deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -30,7 +31,6 @@ RUN pip install -r /tmp/requirements.txt
 RUN pip install --no-build-isolation FastGeodis
 
 # (Optional) pre-cache HF / torch.hub models, not checkpoints
-# Comment this block if you don’t want any prefetch during build.
 RUN python - <<'PY'
 from transformers import AutoModelForSemanticSegmentation, AutoProcessor, AutoModel
 import torch, os
@@ -41,6 +41,5 @@ torch.hub.set_dir(os.environ.get("TORCH_HOME", "/opt/torch"))
 torch.hub.load("facebookresearch/dino:main", "dino_vitb8")
 PY
 
-# Just provide a workspace; checkpoints dir will be a bind mount
 WORKDIR /workspace
 CMD ["bash"]
