@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OVerSeeC: Open-Vocabulary CostMap Generation</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet.js for Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Leaflet.draw for drawing shapes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+    
+    <!-- highlight.js for Syntax Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif;
+            padding-bottom: 60px;
+        }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        ::-webkit-scrollbar { width: 8px; } ::-webkit-scrollbar-track { background: #f1f1f1; } ::-webkit-scrollbar-thumb { background: #888; border-radius: 10px; } ::-webkit-scrollbar-thumb:hover { background: #555; }
+        .toggle-btn-group button.active { background-color: #3b82f6; color: white; } .toggle-btn-group button { background-color: #e5e7eb; color: #374151; }
+        #world-map { height: 60vh; width: 100%; border-radius: 0.5rem; border: 1px solid #d1d5db; }
+        #image-viewer-content { cursor: grab; }
+        #image-viewer-content:active { cursor: grabbing; }
+        input[type="color"] { -webkit-appearance: none; -moz-appearance: none; appearance: none; width: 24px; height: 24px; background-color: transparent; border: none; cursor: pointer; border-radius: 50%; padding: 0; }
+        input[type="color"]::-webkit-color-swatch { border-radius: 50%; border: 1px solid #ccc; }
+        input[type="color"]::-moz-color-swatch { border-radius: 50%; border: 1px solid #ccc; }
+        #console-output, .code-editor { white-space: pre-wrap; word-wrap: break-word; font-family: 'Courier New', Courier, monospace; font-size: 0.875rem; }
+        .code-editor[contenteditable="true"] {
+            outline: 2px solid #3b82f6;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+        }
+        input[type=range][orient=vertical] {
+            writing-mode: bt-lr; 
+            -webkit-appearance: slider-vertical; 
+            width: 8px;
+            height: 175px;
+            padding: 0 5px;
+        }
+        #planner-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <!-- Modals -->
+    <div id="console-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-gray-900 text-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl h-3/4 flex flex-col">
+            <div class="flex justify-between items-center border-b border-gray-700 pb-3 mb-4">
+                <h2 class="text-2xl font-bold">Backend Console</h2>
+                <button id="close-console-btn" class="text-gray-400 hover:text-white text-3xl font-bold">&times;</button>
+            </div>
+            <pre id="console-output" class="flex-grow overflow-y-auto bg-gray-800 p-4 rounded-lg"></pre>
+        </div>
+    </div>
+    
+    <div id="costmap-modal" class="fixed inset-0 bg-black bg-opacity-50 z-[80] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-7xl h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-gray-300 pb-3 mb-4">
+                <h2 class="text-2xl font-bold">Costmap Generation Functions</h2>
+                <div class="flex gap-4">
+                    <button id="edit-costmap-btn" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition">Edit</button>
+                    <button id="save-costmap-btn" class="bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition disabled:bg-gray-400" disabled>Save</button>
+                    <button id="close-costmap-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+                </div>
+            </div>
+            <div class="flex-grow grid grid-cols-1 md:grid-cols-2 gap-6 overflow-hidden">
+                <div class="flex flex-col overflow-hidden">
+                    <h3 class="text-lg font-semibold mb-2 text-gray-700">default_costmap.py (Read-only)</h3>
+                    <div class="flex-grow overflow-y-auto bg-gray-800 text-white p-4 rounded-lg">
+                        <pre><code id="default-costmap-code" class="python code-editor"></code></pre>
+                    </div>
+                </div>
+                <div class="flex flex-col overflow-hidden">
+                    <h3 class="text-lg font-semibold mb-2 text-gray-700">generated_costmap.py</h3>
+                     <div class="flex-grow overflow-y-auto bg-gray-800 text-white p-4 rounded-lg">
+                        <pre><code id="generated-costmap-code" class="python code-editor" contenteditable="false"></code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="server-masks-modal" class="fixed inset-0 bg-black bg-opacity-50 z-[80] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg h-3/4 flex flex-col">
+            <div class="flex justify-between items-center border-b pb-3 mb-4">
+                <h2 class="text-2xl font-bold">Load Masks From Server</h2>
+                <button id="close-server-masks-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+            </div>
+            <div id="server-masks-list" class="flex-grow overflow-y-auto space-y-2 pr-2">
+            </div>
+            <div class="mt-4 pt-4 border-t">
+                <button id="load-selected-masks-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400" disabled>Load Selected Set</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="image-viewer-modal" class="fixed inset-0 bg-black bg-opacity-80 z-[60] hidden items-center justify-center p-4">
+        <button id="close-image-viewer-btn" class="absolute top-4 right-4 text-white text-5xl font-bold hover:text-gray-300 z-50">&times;</button>
+        <div class="w-full h-full flex items-center justify-center overflow-hidden"><img id="image-viewer-content" class="max-w-none max-h-none" src="" alt="Full size preview" /></div>
+    </div>
+
+    <div id="world-map-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-6xl flex flex-col">
+             <div class="flex justify-between items-center border-b pb-3 mb-4"><h2 class="text-2xl font-bold">Create New TIFF from World Map</h2><button id="close-world-map-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button></div>
+             <div class="flex-grow grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div id="world-map" class="md:col-span-2"></div>
+                <div class="md:col-span-1 space-y-4">
+                    <h3 class="text-lg font-semibold">Instructions</h3><p class="text-sm text-gray-600">Use the rectangle tool on the left to draw an area, then fill out the details and click Save.</p>
+                    <div><label for="snip-filename" class="block text-sm font-medium text-gray-700">Filename</label><input type="text" id="snip-filename" class="mt-1 block w-full p-2 border border-gray-300 rounded-md" placeholder="e.g., austin_area.tiff"></div>
+                    <div><label for="snip-tile-size" class="block text-sm font-medium text-gray-700">Tile Size (pixels)</label><input type="number" id="snip-tile-size" value="512" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                    <div><label for="snip-resolution" class="block text-sm font-medium text-gray-700">Map Units per Pixel</label><input type="number" id="snip-resolution" value="1.0" step="0.1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                    <div class="pt-4"><button id="save-map-area-btn" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition disabled:bg-gray-400" disabled>Rasterize and Save</button></div>
+                    <div id="rasterize-progress-area" class="hidden pt-4 space-y-2"><p id="rasterize-status-text" class="text-sm font-medium text-gray-700 text-center">Starting...</p><div class="w-full bg-gray-200 rounded-full h-2.5"><div id="rasterize-progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div></div></div>
+                </div>
+             </div>
+        </div>
+    </div>
+    
+    <div id="gpu-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-2xl"><div class="flex justify-between items-center border-b pb-3 mb-4"><h2 class="text-2xl font-bold">GPU Status</h2><button id="close-gpu-modal-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button></div><div id="gpu-status-container" class="space-y-4"></div></div>
+    </div>
+
+    <!-- Class Detail Modal -->
+    <div id="class-detail-modal" class="fixed inset-0 bg-black bg-opacity-70 z-[70] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-gray-300 pb-3 mb-4">
+                <h2 id="class-detail-title" class="text-2xl font-bold">Class Details</h2>
+                <button id="close-class-detail-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+            </div>
+            <div class="flex-grow overflow-y-auto space-y-6 pr-2">
+                <div>
+                    <h3 class="text-lg font-semibold mb-2 text-gray-700">Original RGB Image</h3>
+                    <div class="bg-gray-200 rounded-lg overflow-hidden border">
+                        <img id="detail-rgb" src="" class="w-full h-auto object-contain max-h-[60vh]">
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-2 text-gray-700">Semantic Segmentation Mask (CLIPSeg)</h3>
+                    <div class="flex flex-row items-center gap-4">
+                        <div class="relative flex-grow bg-gray-200 rounded-lg overflow-hidden border">
+                            <img id="detail-semseg-overlay-base" src="" alt="RGB base" class="w-full h-auto block">
+                            <img id="detail-semseg-overlay-mask" src="" alt="Semantic mask overlay" class="absolute inset-0 w-full h-full opacity-60">
+                        </div>
+                        <input id="semseg-slider" type="range" orient="vertical" min="0" max="100" value="60" class="h-48">
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-2 text-gray-700">Refined Mask (SAM)</h3>
+                    <div class="flex flex-row items-center gap-4">
+                         <div class="relative flex-grow bg-gray-200 rounded-lg overflow-hidden border">
+                            <img id="detail-refined-overlay-base" src="" alt="RGB base" class="w-full h-auto block">
+                            <img id="detail-refined-overlay-mask" src="" alt="Refined mask overlay" class="absolute inset-0 w-full h-full opacity-60">
+                        </div>
+                        <input id="refined-slider" type="range" orient="vertical" min="0" max="100" value="60" class="h-48">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Planner Modal -->
+    <div id="planner-modal" class="fixed inset-0 bg-black bg-opacity-70 z-[90] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-5xl h-[90vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-gray-300 pb-3 mb-4">
+                <h2 class="text-2xl font-bold">A* Planner</h2>
+                <div class="flex-1 flex justify-center">
+                    <div id="planner-status" class="text-lg font-semibold text-blue-600">Select a start point</div>
+                </div>
+                <!-- [NEW] Coordinates Display -->
+                <div id="planner-coords" class="text-sm text-gray-500 font-mono w-36 text-right">Mouse: (-, -)</div>
+                <div class="flex gap-2 ml-4">
+                    <button id="select-start-btn" class="bg-green-500 text-white font-bold py-2 px-3 rounded-lg hover:bg-green-600 transition ring-2 ring-offset-2 ring-green-500">Start</button>
+                    <button id="select-end-btn" class="bg-red-500 text-white font-bold py-2 px-3 rounded-lg hover:bg-red-600 transition">End</button>
+                    <button id="plan-path-btn" class="bg-blue-600 text-white font-bold py-2 px-3 rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400" disabled>Plan</button>
+                    <button id="clear-plan-btn" class="bg-gray-500 text-white font-bold py-2 px-3 rounded-lg hover:bg-gray-600 transition">Clear</button>
+                    <button id="close-planner-btn" class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+                </div>
+            </div>
+            <div id="planner-container" class="flex-grow relative bg-gray-200 rounded-lg overflow-hidden border flex justify-center items-center">
+                <img id="planner-img-bg" src="" class="max-w-full max-h-full object-contain">
+                <canvas id="planner-canvas"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="flex justify-between items-center mb-8">
+            <div class="text-left"><h1 class="text-4xl md:text-5xl font-bold text-gray-900">OVerSeeC</h1><p class="text-lg text-gray-600 mt-2">Open-Vocabulary CostMap Generation</p></div>
+            <div class="flex gap-4">
+                 <button id="show-costmap-btn" class="bg-purple-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-purple-700 transition">Costmap Function</button>
+                 <button id="show-console-btn" class="bg-gray-800 text-white font-bold py-2 px-4 rounded-lg hover:bg-black transition">Console</button>
+                 <button id="show-world-map-btn" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition">Show World Map</button>
+            </div>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- Column 1: Parameters Panel -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-lg border border-gray-200 h-fit">
+                 <div class="flex justify-between items-center mb-6 border-b pb-4"><h2 class="text-2xl font-bold">Parameters</h2><button id="show-gpu-modal-btn" class="bg-indigo-100 text-indigo-700 font-semibold py-2 px-4 rounded-lg hover:bg-indigo-200 transition text-sm">GPU Usage</button></div>
+                <div class="space-y-5">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label for="areal-threshold" class="block text-sm font-medium text-gray-700">Default Areal Threshold</label><input type="number" id="areal-threshold" value="0.8" step="0.1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                        <div><label for="linear-threshold" class="block text-sm font-medium text-gray-700">Default Linear Threshold</label><input type="number" id="linear-threshold" value="0.4" step="0.1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                    </div>
+                    <div><label for="model-name" class="block text-sm font-medium text-gray-700">Model Name</label><select id="model-name" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"><option>clipseg</option><option>segformer</option><option>dinounet</option></select></div>
+                    <div><label for="mask-refiner-name" class="block text-sm font-medium text-gray-700">Mask Refiner</label><select id="mask-refiner-name" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"><option>samrefiner</option><option>samv1_exemplar</option></select></div>
+                    <div><label for="sam-model" class="block text-sm font-medium text-gray-700">SAM Model</label><select id="sam-model" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"><option>vit_h</option><option>vit_l</option><option>vit_b</option></select></div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div><label for="cmap-device" class="block text-sm font-medium text-gray-700">CMap</label><select id="cmap-device" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"><option>loading...</option></select></div>
+                        <div><label for="sam-device" class="block text-sm font-medium text-gray-700">SAM</label><select id="sam-device" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"><option>loading...</option></select></div>
+                        <div><label for="semseg-device" class="block text-sm font-medium text-gray-700">SemSeg</label><select id="semseg-device" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm"><option>loading...</option></select></div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label for="semseg-tile-size" class="block text-sm font-medium text-gray-700">SemSeg Tile</label><input type="number" id="semseg-tile-size" value="512" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                        <div><label for="semseg-stride" class="block text-sm font-medium text-gray-700">SemSeg Stride</label><input type="number" id="semseg-stride" value="256" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                        <div><label for="refiner-tile-size" class="block text-sm font-medium text-gray-700">Refiner Tile</label><input type="number" id="refiner-tile-size" value="512" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                        <div><label for="refiner-stride" class="block text-sm font-medium text-gray-700">Refiner Stride</label><input type="number" id="refiner-stride" value="256" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
+                    </div>
+                    <div><label class="block text-sm font-medium text-gray-700">SemSeg Combine Method</label><div id="semseg-combine-method" class="mt-1 flex rounded-md shadow-sm toggle-btn-group"><button type="button" data-value="max" class="active w-full py-2 px-4 border border-gray-300 rounded-l-md">Max</button><button type="button" data-value="mean" class="w-full py-2 px-4 border border-gray-300 -ml-px">Mean</button></div></div>
+                    <div><label class="block text-sm font-medium text-gray-700">Refiner Combine Method</label><div id="refiner-combine-method" class="mt-1 flex rounded-md shadow-sm toggle-btn-group"><button type="button" data-value="max" class="active w-full py-2 px-4 border border-gray-300 rounded-l-md">Max</button><button type="button" data-value="mean" class="w-full py-2 px-4 border border-gray-300 -ml-px">Mean</button></div></div>
+                </div>
+                 <div class="mt-6"><button id="update-params-btn" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition">Update Parameters</button></div>
+            </div>
+
+            <!-- Column 2: Preview & Results (Wider) -->
+            <div class="lg:col-span-2 space-y-8">
+                <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200"><div id="tiff-preview-section"><h2 class="text-2xl font-bold mb-4 border-b pb-3">Image Preview</h2><div id="tiff-preview-container" class="w-full min-h-[200px] bg-gray-100 rounded-lg flex justify-center items-center cursor-pointer hover:bg-gray-200 transition"><p class="text-gray-500">Select a TIFF file to see a preview.</p></div></div></div>
+                
+                <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 min-h-[400px] flex flex-col">
+                    <div id="costmap-display-area" class="hidden mb-6">
+                        <div class="flex justify-between items-center mb-4 border-b pb-3">
+                           <h2 class="text-2xl font-bold">Final Costmap</h2>
+                           <button id="plan-over-map-btn" class="bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-cyan-700 transition">Plan Over Map</button>
+                        </div>
+                        <div id="costmap-image-container" class="bg-gray-100 rounded-lg flex justify-center items-center">
+                        </div>
+                    </div>
+                    <div id="results-area" class="flex-grow hidden">
+                         <h2 class="text-2xl font-bold mb-4 border-b pb-3">Generated Masks</h2>
+                         <div id="results-masks-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+                    </div>
+                    <div id="results-placeholder" class="col-span-full text-center text-gray-500 py-16 flex-grow flex justify-center items-center"><p>Results will appear here.</p></div>
+                    <div id="loader" class="col-span-full hidden flex-col justify-center items-center py-16 flex-grow">
+                        <div class="flex items-center">
+                            <div class="loader"></div>
+                            <p class="ml-4 text-lg">Processing...</p>
+                        </div>
+                        <button id="cancel-pipeline-btn" class="mt-4 bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Column 3: User Inputs -->
+            <div class="lg:col-span-1 space-y-8">
+                <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                    <div class="mb-6">
+                        <label for="tiff-select" class="block text-lg font-semibold mb-2">1. Select a TIFF File</label>
+                        <select id="tiff-select" class="w-full p-3 border border-gray-300 rounded-lg bg-white"><option value="">-- Loading files --</option></select>
+                        <button id="load-server-masks-btn" class="w-full bg-yellow-500 text-black font-bold py-3 px-4 rounded-lg hover:bg-yellow-600 transition disabled:bg-gray-400 mt-2" disabled>Load Server Masks</button>
+                    </div>
+                    <div class="space-y-3">
+                        <div>
+                            <h3 class="text-lg font-semibold">2. Execute Pipeline</h3>
+                            <button id="run-pipeline-btn" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition disabled:bg-gray-400 mt-2" disabled>Run Vision Pipeline</button>
+                        </div>
+                        <div>
+                            <button id="generate-costmap-btn" class="w-full bg-teal-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-teal-700 transition disabled:bg-gray-400" disabled>Generate Costmap</button>
+                        </div>
+                    </div>
+                    <hr class="my-6">
+                    <div>
+                        <label for="prompt-input" class="block text-lg font-semibold mb-2">3. Optional: Refine Classes with a Prompt</label>
+                        <textarea id="prompt-input" rows="3" class="w-full p-3 border border-gray-300 rounded-lg" placeholder="e.g., 'I want to avoid sandy beaches...'"></textarea>
+                        <button id="process-prompt-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition mt-3">Get Classes from Prompt</button>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
+                    <h3 class="text-2xl font-bold mb-4 border-b pb-3">4. Manage Classes</h3>
+                    <div id="class-list" class="space-y-3 min-h-[50px]"></div>
+                    <div class="flex gap-2 mt-4"><input type="text" id="new-class-input" class="w-full p-2 border border-gray-300 rounded-lg" placeholder="Add a new class..."><button id="add-class-btn" class="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 transition">+</button></div>
+                    <div class="mt-4"><button id="confirm-classes-btn" class="w-full bg-gray-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-800 transition">Confirm Classes & Log Config</button></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Footer -->
+    <footer class="fixed bottom-0 left-0 right-0 bg-gray-900 text-white p-3 z-40">
+        <div class="container mx-auto flex justify-between items-center text-xs">
+            <div class="flex items-center gap-4">
+                <a href="https://arxiv.org/abs/2405.12216" target="_blank" class="hover:text-blue-400 transition">OVerSeeC on arXiv</a>
+                <a href="https://github.com/UT-Austin-RPL/OVerSeeC" target="_blank" class="hover:text-blue-400 transition">GitHub</a>
+            </div>
+            <div class="text-gray-400">
+                Rwik Rana, Jesse Quattrociocchi, Dongmyeong Lee, Christian Ellis, Amanda Adkins, Adam Uccello, Garrett Warnell, Joydeep Biswas
+            </div>
+            <div class="text-right">
+                <p>The University of Texas at Austin</p>
+                <p>DEVCOM Army Research Laboratory</p>
+            </div>
+        </div>
+    </footer>
+    
+    <script src="script.js"></script>
+</body>
+</html>

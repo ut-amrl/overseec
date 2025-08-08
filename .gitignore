@@ -1,0 +1,9 @@
+**/*.tif
+**/build
+**/results
+**/uploads
+**/temp_tiles
+**/previews
+**/checkpoints
+**/*.so
+**/__pycache__
