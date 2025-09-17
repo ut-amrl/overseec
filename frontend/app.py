@@ -562,7 +562,7 @@ def generate_final_costmap():
         sys.modules['costmap_module'] = costmap_module
         spec.loader.exec_module(costmap_module)
         
-        costmap_raw = costmap_module.generate_costmap(mask_dict)
+        costmap_raw = costmap_module.generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6})
 
         min_val, max_val = costmap_raw.min(), costmap_raw.max()
         if max_val == min_val:

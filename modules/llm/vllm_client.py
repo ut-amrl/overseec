@@ -75,130 +75,168 @@ def overseec_query_llm(user_prompt, code_filepath):
             }</DICT>
 
         
-        TASK 2 : generate costmap
+        TASK 2 :
 
-            Inputs
-            • mask_dict: a dict whose keys are lowercase class names (e.g., "road", "tree") and whose values are same-sized binary NumPy arrays.
-            • Three Boolean helpers are already defined: mask_and, mask_or, mask_not.
-            • You may use OpenCV for dilation, blurring, or distance transforms.
+        Inputs
+        - mask_dict: dict mapping lowercase class names → equally sized binary masks (NumPy np.uint8 or PyTorch bool/uint8/float on any device).
+        - t_dict: dict with thresholds { "t_l": TL, "t_a": TA } for linear vs areal classes.
+        - Helper mask ops are available: mask_and, mask_or, mask_not, and mask_remove(A, B) (i.e., A ∧ ¬B).
+        - You may use OpenCV (cv2) for morphology/DT or pure NumPy/PyTorch; autodetect types and stay in one backend.
 
-            Default class meanings (apply only when the user says nothing about that class):
-            You should change these values according to user specification otherwise use these values.
+        Default semantics (when prompt is silent)
+        - Costs before normalization:
+        road=0, trail or footway=0, grass=100, tree=1000, building=1000, water=1000.
+
+                    Analyze the user's prompt below to understand their preferences. Create a "Costing Plan" that ranks all geographic classes into one of the following tiers. Explain your reasoning.
+
+        * **Tier 1: Preferred (Cost 0-200)**: The most desired terrain. Use for "stay on", "prefer", etc.
+        * **Tier 2: Tolerated (Cost 200-50)**: Acceptable, but not ideal. Use for "you can go over", "is fine", etc.
+        * **Tier 3: Discouraged (Cost 500-750)**: Use for phrases like, "...if you have to" or "...if road isn't available."
+        * **Tier 4: Lethal (Cost 750-900)**: last resort. Use for "avoid", "don't prefer", etc.
+        * **Tier 4: Lethal (Cost 900-1000)**: Must be avoided. Use for "don't go on", etc.
+
+        Goal
+        Synthesize an executable function f_LLM that translates the user’s NL prompt into a normalized global costmap C ∈ [0, 1000]^(H×W) by following steps (i)–(vi) from the paper.
+
+        ---
+
+        Procedure
+
+        (i) Function signature
+        def generate_costmap(mask_dict, t_dict):
+            # returns costmap with shape H×W, dtype float32, range [0, 1000]
+
+        (ii) Mask operators
+        Use AND, OR, NOT, REMOVE for pixelwise transforms. Implement/consume:
+        - mask_and(A,B), mask_or(A,B), mask_not(A), mask_remove(A,B) = A ∧ ¬B.
+
+        (iii) Prompt analysis → weights, hierarchies, geometry
+        - Produce per-class weights w_c ∈ [0,1] reflecting preference (lower = more preferred).
+        - Map hints like “stay on / prefer / can go over / avoid / don’t go on” into a weight scale (e.g., 0.0, 0.25, 0.5, 0.85, 1.0).
+        - Infer semantic hierarchies H: parent ⊃ child (e.g., grass ⊃ baseball field, water ⊃ pond).
+        - Infer geometric cues γ_c (e.g., “stay on the sides of the road”) that require distance fields, dilations, or band masks.
+
+        (iv) Mask operations (hierarchy + geometry)
+        1. Thresholding (use TL for linear/network-like, TA for areal/blob-like):
+        road, trail -> TL
+        grass, tree, building, water, other areal -> TA
+        2. Hierarchy enforcement: remove child masks from parents to prevent double counting:
+        parent_mask = mask_remove(parent_mask, child_mask) for all (parent, child) ∈ H.
+        3. Geometry transforms: for each cue in γ_c, derive auxiliary masks (e.g., distance-to-centerline, bands near road edges via distanceTransform or morphological ops) and incorporate them when computing the class contribution (see v).
+
+        (v) Cost accumulation (per-class contributions, then sum)
+        For each class c with probability/logit map P_c (after thresholding → binary mask M_c):
+        - Convert any logits to probabilities if needed (sigmoid on float logits; if already binary, cast to float).
+        - Compute per-class cost contribution:
+        C_c = α_c * w_c * M_c * P_c * G_c
+        where:
+        - α_c is a base class cost from defaults above (adapted by the prompt when specified).
+        - G_c is an optional geometric factor in [0,1] (e.g., band near road gets lower factor if “prefer sides”; centerline gets higher factor if “avoid center”).
+        - Sum all C_c pixelwise to get C̃.
+        - Unknown region handling: pixels with no class evidence receive a high fallback (e.g., max(C̃)) to discourage exploration outside known data.
+
+        (vi) Normalization
+        - Normalize C̃ to [0,1] within the image (robust min–max; guard against all-zeros).
+        - Scale to [0,1000] → final C. Ensure dtype float32.
+
+        ---
+
+        def generate_costmap(mask_dict, t_dict):
+            # mask operations
+
+            return costmap
+
+        example of a costmap is :
+        example prefernce : "dont go over the baseball field. the pond is dry, so you can go over it."
+
+        Example implementation
+
+        <CODE>
+        import numpy as np
+        import cv2
+        import torch
+
+        def mask_and(mask1: torch.Tensor, mask2: torch.Tensor) -> torch.Tensor:
+            return torch.logical_and(mask1.bool(), mask2.bool()).to(torch.uint8)
+
+        def mask_or(mask1: torch.Tensor, mask2: torch.Tensor) -> torch.Tensor:
+            return torch.logical_or(mask1.bool(), mask2.bool()).to(torch.uint8)
+
+        def mask_not(mask: torch.Tensor) -> torch.Tensor:
+            return torch.logical_not(mask.bool()).to(torch.uint8)
+
+        def mask_remove(mask1: torch.Tensor, mask2: torch.Tensor) -> torch.Tensor:
+            return (mask1.bool() & ~mask2.bool()).to(torch.uint8)
+
+
+        def generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}):
+            shape = next(iter(mask_dict.values())).shape
+
+            device = next(iter(mask_dict.values())).device
+            road_logit = mask_dict.get('road', torch.zeros(shape, dtype=torch.float32, device=device))
+            trees_logit = mask_dict.get('tree', torch.zeros(shape, dtype=torch.float32, device=device))
+            buildings_logit = mask_dict.get('building', torch.zeros(shape, dtype=torch.float32, device=device))
+            grass_logit = mask_dict.get('grass', torch.zeros(shape, dtype=torch.float32, device=device))
+            trail_logit = mask_dict.get('trail or footway', torch.zeros(shape, dtype=torch.float32, device=device))
+            water_logit = mask_dict.get('water', torch.zeros(shape, dtype=torch.float32, device=device))
+            baseball_field_logit = mask_dict.get('baseball field', torch.zeros(shape, dtype=torch.float32, device=device))
+            pond_logit = mask_dict.get('pond', torch.zeros(shape, dtype=torch.float32, device=device))
+
+            t_l = t_dict.get("t_l", 0.4)
+            t_a = t_dict.get("t_a", 0.6)
+
+            road_logit = torch.from_numpy(road_logit).to(device)
+            trees_logit = torch.from_numpy(trees_logit).to(device)
+            buildings_logit = torch.from_numpy(buildings_logit).to(device)
+            grass_logit = torch.from_numpy(grass_logit).to(device)
+            trail_logit = torch.from_numpy(trail_logit).to(device)
+            water_logit = torch.from_numpy(water_logit).to(device)
+            baseball_field_logit = torch.from_numpy(baseball_field_logit).to(device)
+            pond_logit = torch.from_numpy(pond_logit).to(device)
+
+            road_mask = road_logit > t_l
+            trail_mask = trail_logit > t_l
+            grass_mask = grass_logit > t_a  
+            buildings_mask = buildings_logit > t_a
+            trees_mask = trees_logit > t_a
+            water_mask = water_logit > t_a
+            baseball_field_mask = baseball_field_logit > t_a
+            pond_mask = pond_logit > t_a
             
-            default `road` : cost 0
-            default `trail` or footway : cost 0 
-            default `grass` : cost 100
-            default `tree` : cost 1000
-            default `building` : cost 1000
-            default `water` : cost 1000
 
 
-            Analyze the user's prompt below to understand their preferences. Create a "Costing Plan" that ranks all geographic classes into one of the following tiers. Explain your reasoning.
 
-            * **Tier 1: Preferred (Cost 0-200)**: The most desired terrain. Use for "stay on", "prefer", etc.
-            * **Tier 2: Tolerated (Cost 200-50)**: Acceptable, but not ideal. Use for "you can go over", "is fine", etc.
-            * **Tier 3: Discouraged (Cost 500-750)**: Use for phrases like, "...if you have to" or "...if road isn't available."
-            * **Tier 4: Lethal (Cost 750-900)**: last resort. Use for "avoid", "don't prefer", etc.
-            * **Tier 4: Lethal (Cost 900-1000)**: Must be avoided. Use for "don't go on", etc.
+            # Hierarchy
+            grass_mask = mask_remove(grass_mask, baseball_field_mask)
+            water_mask = mask_remove(water_mask, pond_mask)
+            # Geometry
+            # Nothing for now
 
-            ---------------------------------------
+            # Unknown Mask
+            mask_count = road_mask.to(torch.float32) + trail_mask.to(torch.float32) + grass_mask.to(torch.float32) + \
+                        buildings_mask.to(torch.float32) + trees_mask.to(torch.float32) + water_mask.to(torch.float32) \
+                        + baseball_field_mask.to(torch.float32) + pond_mask.to(torch.float32)
 
-            ** Function signature **
-
-            def generate_costmap(mask_dict):
-
-                # mask operations
-
-                return costmap
-
-            example of a costmap is :
-
-            example prefernce : "dont go over the baseball field. the pond is dry, so you can go over it."
+            data_region = (mask_count > 0)
+            data_region_float = data_region.to(torch.float32)
 
 
-            <CODE>
-            import numpy as np
-            import cv2
+            costmap = torch.zeros(shape, dtype=torch.float32, device=device)
+            costmap[road_mask] += 0 * road_logit[road_mask]
+            costmap[trail_mask] += 0 * trail_logit[trail_mask]
+            costmap[grass_mask] += 300 * grass_logit[grass_mask]
+            costmap[pond_mask] += 500 * pond_logit[pond_mask]
+            costmap[buildings_mask] += 2000 * buildings_logit[buildings_mask]
+            costmap[trees_mask] += 2000 * trees_logit[trees_mask]
+            costmap[water_mask] += 2000 * water_logit[water_mask]
+            costmap[baseball_field_mask] += 2000 * baseball_field_logit[baseball_field_mask]
 
-            def mask_and(mask1: np.ndarray, mask2: np.ndarray) -> np.ndarray:
-                return np.logical_and(mask1, mask2).astype(np.uint8)
+            costmap[data_region] = costmap[data_region] / mask_count[data_region]
 
-            def mask_or(mask1: np.ndarray, mask2: np.ndarray) -> np.ndarray:
-                return np.logical_or(mask1, mask2).astype(np.uint8)
-
-            def mask_not(mask: np.ndarray) -> np.ndarray:
-                return np.logical_not(mask).astype(np.uint8)
-            
-            def remove_mask(mask1 : np.ndarray, mask2: np.ndarray) -> np.ndarray:
-                return np.logical_and(mask1, mask_not(mask2)).astype(np.uint8)
-            
-            def distance_from_center_blob_mask(mask: np.ndarray) -> np.ndarray:
-                # Ensure mask is binary uint8
-                mask = mask.astype(np.uint8)
-
-                # Compute distance transform inside the blob (non-zero regions)
-                mask_dist = cv2.distanceTransform(mask, cv2.DIST_L2, 5)
-
-                # Normalize distance to [0, 1]
-                max_dist = mask_dist.max() or 1.0
-                normalized_dist = mask_dist / max_dist
-
-                return normalized_dist
-
-            def generate_costmap(mask_dict):
-
-                shape = next(iter(mask_dict.values())).shape
-
-                classes = ['road', 'trail or footway', 'water', 'grass', 'building', 'pond', 'baseball field']
-                assert all(cls in mask_dict for cls in classes), "mask_dict must contain all default classes"
-
-                road_mask = mask_dict.get('road', np.zeros(shape, dtype=np.float32))
-                trees_mask = mask_dict.get('tree', np.zeros(shape, dtype=np.float32))
-                buildings_mask = mask_dict.get('building', np.zeros(shape, dtype=np.float32))
-                grass_mask = mask_dict.get('grass', np.zeros(shape, dtype=np.float32))
-                trail_mask = mask_dict.get('trail or footway', np.zeros(shape, dtype=np.float32))
-                water_mask = mask_dict.get('water', np.zeros(shape, dtype=np.float32))
-                pond_mask = mask_dict.get('river', np.zeros(shape, dtype=np.float32))
-                baseball_mask = mask_dict.get('baseball field', np.zeros(shape, dtype=np.float32))
-
-                postive_hierarchy = [('baseball field', 'grass')]
-                negative_hierarchy = [('pond', 'water')]
-
-                # rectifying water mask
-                water_mask = remove_mask(water_mask, pond_mask)
-
-                # rectifying grass
-                grass_mask = remove_mask(grass_mask, baseball_mask)
-
-                # Step 1: Define non-avoid mask
-
-                lethal_mask = mask_or(mask_or(mask_or(trees_mask, buildings_mask), water_mask).
-                non_lethal_mask = mask_not(lethal_mask)
-                lethal_mask = lethal_mask.astype(np.float32)
-                non_lethal_mask = non_lethal_mask.astype(np.float32)
-                
-
-                costmap = np.ones(shape, dtype=np.float32) * 1000.0
-                costmap[road_mask.astype(bool)] = 0.0
-
-                center_of_road_mask = distance_from_center_blob_mask(road_mask)
-                costmap += 50 * center_of_road_mask.astype(np.float32)  # prefer the sides of the road
-                # costmap += 50 *(1 - center_of_road_mask).astype(np.float32)  # prefer the center of the road
-
-                
-                costmap[trail_mask.astype(bool)] = 0.0
-                costmap[grass_mask.astype(bool)] = 100.0
-
-                costmap[baseball_mask.astype(bool)] = 700.0  # baseball field
-
-                costmap[pond_mask.astype(bool)] = 0.0  # pond
-                
-                costmap[lethal_mask.astype(bool)] = 1000.0  # Avoidance cost for trees, buildings, and water
-                                
-
-                return costmap
-
-            </CODE>
+            costmap += costmap.max() * (1 - data_region_float)  # Assign high cost to non-data regions
+            costmap = costmap.cpu().numpy()
+            return costmap
+        <CODE>
 
             ACTUAL USER PREFERENCE :
 
@@ -233,7 +271,7 @@ if __name__ == "__main__":
     # prompt = "I prefer the trees"
     # prompt = "I prefer the roads, grass is okay, but please avoid the baseball field"
     # prompt = "go over the river and water is lethal"
-    prompt = "avoid the water but the river has dried up so you can go over it"
+    prompt = "Do not go over the railway tracks."
     # prompt = "avoid the river"
 
     # pref_score_dict = class_segregation_prompt(prompt)

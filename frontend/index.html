@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OVerSeeC: Open-Vocabulary CostMap Generation</title>
+    <title>OVerSeeC: Open-Vocabulary Costmap Generation from Satellite Images and Natural Language</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Google Fonts -->
@@ -206,7 +206,8 @@
     <!-- Main Content -->
     <div class="container mx-auto p-4 md:p-8">
         <header class="flex justify-between items-center mb-8">
-            <div class="text-left"><h1 class="text-4xl md:text-5xl font-bold text-gray-900">OVerSeeC</h1><p class="text-lg text-gray-600 mt-2">Open-Vocabulary CostMap Generation</p></div>
+            <div class="text-left"><h1 class="text-4xl md:text-5xl font-bold text-gray-900">OVerSeeC</h1><p class="text-lg text-gray-600 mt-2">Open-Vocabulary Costmap Generation from Satellite
+Images and Natural Language</p></div>
             <div class="flex gap-4">
                  <button id="show-costmap-btn" class="bg-purple-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-purple-700 transition">Costmap Function</button>
                  <button id="show-console-btn" class="bg-gray-800 text-white font-bold py-2 px-4 rounded-lg hover:bg-black transition">Console</button>
@@ -245,7 +246,7 @@
 
             <!-- Column 2: Preview & Results (Wider) -->
             <div class="lg:col-span-2 space-y-8">
-                <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200"><div id="tiff-preview-section"><h2 class="text-2xl font-bold mb-4 border-b pb-3">Image Preview</h2><div id="tiff-preview-container" class="w-full min-h-[200px] bg-gray-100 rounded-lg flex justify-center items-center cursor-pointer hover:bg-gray-200 transition"><p class="text-gray-500">Select a TIFF file to see a preview.</p></div></div></div>
+                <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200"><div id="tiff-preview-section"><h2 class="text-2xl font-bold mb-4 border-b pb-3">Satellite Image</h2><div id="tiff-preview-container" class="w-full min-h-[200px] bg-gray-100 rounded-lg flex justify-center items-center cursor-pointer hover:bg-gray-200 transition"><p class="text-gray-500">Select a TIFF file to see a preview.</p></div></div></div>
                 
                 <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200 min-h-[400px] flex flex-col">
                     <div id="costmap-display-area" class="hidden mb-6">
@@ -275,14 +276,14 @@
             <div class="lg:col-span-1 space-y-8">
                 <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
                     <div class="mb-6">
-                        <label for="tiff-select" class="block text-lg font-semibold mb-2">1. Select a TIFF File</label>
+                        <label for="tiff-select" class="block text-lg font-semibold mb-2">Select a TIFF File</label>
                         <select id="tiff-select" class="w-full p-3 border border-gray-300 rounded-lg bg-white"><option value="">-- Loading files --</option></select>
-                        <button id="load-server-masks-btn" class="w-full bg-yellow-500 text-black font-bold py-3 px-4 rounded-lg hover:bg-yellow-600 transition disabled:bg-gray-400 mt-2" disabled>Load Server Masks</button>
+                        <button id="load-server-masks-btn" class="w-full bg-yellow-500 text-black font-bold py-3 px-4 rounded-lg hover:bg-yellow-600 transition disabled:bg-gray-400 mt-2" disabled>Load Masks</button>
                     </div>
                     <div class="space-y-3">
                         <div>
-                            <h3 class="text-lg font-semibold">2. Execute Pipeline</h3>
-                            <button id="run-pipeline-btn" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition disabled:bg-gray-400 mt-2" disabled>Run Vision Pipeline</button>
+                            <h3 class="text-lg font-semibold">Execute Pipeline</h3>
+                            <button id="run-pipeline-btn" class="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-green-700 transition disabled:bg-gray-400 mt-2" disabled>OV Mask Generation</button>
                         </div>
                         <div>
                             <button id="generate-costmap-btn" class="w-full bg-teal-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-teal-700 transition disabled:bg-gray-400" disabled>Generate Costmap</button>
@@ -290,13 +291,13 @@
                     </div>
                     <hr class="my-6">
                     <div>
-                        <label for="prompt-input" class="block text-lg font-semibold mb-2">3. Optional: Refine Classes with a Prompt</label>
+                        <label for="prompt-input" class="block text-lg font-semibold mb-2">Natural Language Prompt</label>
                         <textarea id="prompt-input" rows="3" class="w-full p-3 border border-gray-300 rounded-lg" placeholder="e.g., 'I want to avoid sandy beaches...'"></textarea>
-                        <button id="process-prompt-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition mt-3">Get Classes from Prompt</button>
+                        <button id="process-prompt-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition mt-3">Run LLM</button>
                     </div>
                 </div>
                 <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
-                    <h3 class="text-2xl font-bold mb-4 border-b pb-3">4. Manage Classes</h3>
+                    <h3 class="text-2xl font-bold mb-4 border-b pb-3">Manage Classes</h3>
                     <div id="class-list" class="space-y-3 min-h-[50px]"></div>
                     <div class="flex gap-2 mt-4"><input type="text" id="new-class-input" class="w-full p-2 border border-gray-300 rounded-lg" placeholder="Add a new class..."><button id="add-class-btn" class="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 transition">+</button></div>
                     <div class="mt-4"><button id="confirm-classes-btn" class="w-full bg-gray-700 text-white font-bold py-3 px-4 rounded-lg hover:bg-gray-800 transition">Confirm Classes & Log Config</button></div>

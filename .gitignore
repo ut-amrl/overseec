@@ -8,3 +8,5 @@
 **/*.so
 **/__pycache__
 frontend/costmap_functions/
+results/
+geotiffs/

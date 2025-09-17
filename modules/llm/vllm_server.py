@@ -30,7 +30,7 @@ async def generate_response(request: InferenceRequest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cuda", type=str, default="0")
+    parser.add_argument("--cuda", type=str, default="1")
     parser.add_argument("--model", type=str, default="google/gemma-2-27b-it")
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
