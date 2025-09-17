@@ -524,6 +524,24 @@ def save_costmap_function():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route("/api/restore-costmap-function", methods=["POST"])
+def restore_costmap_function():
+    """Copies the default costmap file to the generated costmap file."""
+    try:
+        default_path = os.path.join(COSTMAP_FUNCTIONS_FOLDER, "default_costmap.py")
+        generated_path = os.path.join(COSTMAP_FUNCTIONS_FOLDER, "generated_costmap.py")
+        
+        if not os.path.exists(default_path):
+             return jsonify({"error": "Default costmap file not found on server."}), 404
+
+        shutil.copyfile(default_path, generated_path)
+        
+        return jsonify({"message": "Costmap function restored to default successfully."})
+    except Exception as e:
+        print(f"!!! COSTMAP RESTORE ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+    
 @app.route("/api/generate-costmap", methods=["POST"])
 def generate_final_costmap():
     data = request.json

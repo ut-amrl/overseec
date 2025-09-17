@@ -52,6 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
         closeCostmapBtn = document.getElementById('close-costmap-btn'),
         editCostmapBtn = document.getElementById('edit-costmap-btn'),
         saveCostmapBtn = document.getElementById('save-costmap-btn'),
+        restoreCostmapBtn = document.getElementById('restore-costmap-btn'),
         defaultCostmapCode = document.getElementById('default-costmap-code'),
         generatedCostmapCode = document.getElementById('generated-costmap-code');
 
@@ -613,6 +614,45 @@ document.addEventListener('DOMContentLoaded', () => {
             saveCostmapBtn.textContent = 'Save';
         }
     }
+
+    async function handleRestoreCostmap() {
+        if (!confirm("Are you sure you want to overwrite the generated costmap with the default version? This cannot be undone.")) {
+            return;
+        }
+
+        restoreCostmapBtn.textContent = 'Restoring...';
+        restoreCostmapBtn.disabled = true;
+
+        try {
+            // 1. Tell the server to restore the file
+            const restoreResponse = await fetch(`${API_BASE_URL}/api/restore-costmap-function`, { method: 'POST' });
+            const restoreData = await restoreResponse.json();
+            if (!restoreResponse.ok) throw new Error(restoreData.error || "Failed to restore.");
+
+            // 2. Fetch the new content of the generated file
+            const contentResponse = await fetch(`${API_BASE_URL}/api/get-costmap-functions`);
+            const contentData = await contentResponse.json();
+            if (!contentResponse.ok) throw new Error(contentData.error || "Failed to reload content.");
+
+            // 3. Update the UI with the new content
+            generatedCostmapCode.textContent = contentData.generated;
+            hljs.highlightElement(generatedCostmapCode);
+
+            // 4. Reset the editor state
+            generatedCostmapCode.setAttribute('contenteditable', 'false');
+            generatedCostmapCode.classList.remove('ring-2', 'ring-blue-500');
+            saveCostmapBtn.disabled = true;
+            editCostmapBtn.disabled = false;
+
+            alert(restoreData.message);
+
+        } catch (error) {
+            alert(`Restore failed: ${error.message}`);
+        } finally {
+            restoreCostmapBtn.textContent = 'Restore Default';
+            restoreCostmapBtn.disabled = false;
+        }
+    }
     
     function handleToggleButtons(e) {
         const button = e.target.closest('button');
@@ -1105,6 +1145,7 @@ document.addEventListener('DOMContentLoaded', () => {
     closeCostmapBtn.addEventListener('click', hideCostmapModal);
     editCostmapBtn.addEventListener('click', handleEditCostmap);
     saveCostmapBtn.addEventListener('click', handleSaveCostmap);
+    restoreCostmapBtn.addEventListener('click', handleRestoreCostmap);
     showWorldMapBtn.addEventListener('click', showWorldMap);
     closeWorldMapBtn.addEventListener('click', hideWorldMap);
     saveMapAreaBtn.addEventListener('click', handleSaveMapArea);
