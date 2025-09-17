@@ -52,8 +52,8 @@ def generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}):
     # Nothing for now
 
     # Unknown Mask
-    mask_count = road_mask.to(torch.float32) + trail_mask.to(torch.float32) + grass_mask.to(torch.float32) \                       
-                + buildings_mask.to(torch.float32) + trees_mask.to(torch.float32) + water_mask.to(torch.float32)
+    mask_count = (road_mask.to(torch.float32) + trail_mask.to(torch.float32) + grass_mask.to(torch.float32)                       
+                + buildings_mask.to(torch.float32) + trees_mask.to(torch.float32) + water_mask.to(torch.float32))
 
     data_region = (mask_count > 0)
     data_region_float = data_region.to(torch.float32)
