@@ -551,7 +551,6 @@ def generate_final_costmap():
 
     try:
         mask_dict = {}
-        binary_threshold = 0.5 * 255
 
         for class_name, url in mask_urls.items():
             mask_path = os.path.join(_basedir, url.lstrip('/'))
@@ -561,6 +560,7 @@ def generate_final_costmap():
                     mask_array = np.array(img)
                     # binary_mask = (mask_array > binary_threshold).astype(np.uint8)
                     # mask_dict[class_name] = binary_mask
+                    
                     mask_dict[class_name] = mask_array / 255.0  # Normalize to [0, 1] range
             else:
                 print(f"Warning: Mask file not found at {mask_path}")
@@ -580,7 +580,7 @@ def generate_final_costmap():
         sys.modules['costmap_module'] = costmap_module
         spec.loader.exec_module(costmap_module)
         
-        costmap_raw = costmap_module.generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6})
+        costmap_raw = costmap_module.generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}, device="cuda:0")
 
         min_val, max_val = costmap_raw.min(), costmap_raw.max()
         if max_val == min_val:

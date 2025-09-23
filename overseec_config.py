@@ -18,7 +18,7 @@ STD = [0.229, 0.224, 0.225]
 
 @dataclass 
 class Satellite_2_masks_config:
-    device :str  = "cuda:2"
+    device :str  = "cuda:0"
     semseg_tile_size : tuple = (512, 512)
     semseg_stride : int = 256
 
@@ -31,9 +31,9 @@ class Satellite_2_masks_config:
 
 @dataclass
 class AllConfig:
-    cmap_device : str = "cuda:2"
-    sam_device : str  = "cuda:2"
-    semseg_device : str = "cuda:2"
+    cmap_device : str = "cuda:0"
+    sam_device : str  = "cuda:0"
+    semseg_device : str = "cuda:0"
 
     model_name : str = "clipseg"
     mask_refiner_name : str = "samrefiner"

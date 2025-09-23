@@ -14,9 +14,15 @@ def mask_not(mask: torch.Tensor) -> torch.Tensor:
 def mask_remove(mask1: torch.Tensor, mask2: torch.Tensor) -> torch.Tensor:
             return (mask1.bool() & ~mask2.bool()).to(torch.uint8)
 
+def convert_masks2torch(mask_dict, device):
+    for key in mask_dict:
+        if isinstance(mask_dict[key], np.ndarray):
+            mask_dict[key] = torch.from_numpy(mask_dict[key]).to(device)
+    return mask_dict  
 
 def generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}):
     shape = next(iter(mask_dict.values())).shape
+    mask_dict = convert_masks2torch(mask_dict, device)
 
     device = next(iter(mask_dict.values())).device
     road_logit = mask_dict.get('road', torch.zeros(shape, dtype=torch.float32, device=device))

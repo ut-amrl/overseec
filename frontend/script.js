@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         plannerStatus = document.getElementById('planner-status'),
         plannerCoords = document.getElementById('planner-coords');
 
-    const API_BASE_URL = 'http://127.0.0.1:5002';
+    const API_BASE_URL = 'http://127.0.0.1:5003';
     let currentClasses = [], worldMap, drawnItems, capturedBounds, progressInterval, gpuPollInterval, consolePollInterval;
     let panzoomState = { scale: 1, translateX: 0, translateY: 0, isPanning: false, startX: 0, startY: 0 };
     let currentResultData = null; 
@@ -260,11 +260,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(data.error || 'Failed to process prompt.');
             currentClasses = data.classes;
             renderClasses();
+
+            // [ADD THIS FIX]
+            // After rendering the new classes, check if the code editor is open.
+            // If it is, re-apply its highlighting to prevent it from disappearing.
+            if (!costmapModal.classList.contains('hidden')) {
+                hljs.highlightElement(defaultCostmapCode);
+                hljs.highlightElement(generatedCostmapCode);
+                hljs.lineNumbersBlock(defaultCostmapCode);
+                hljs.lineNumbersBlock(generatedCostmapCode);
+            }
+            // [END OF FIX]
+
         } catch (error) {
             console.error("Prompt processing error:", error);
             alert(`Error: ${error.message}`);
         } finally {
-            processPromptBtn.textContent = 'Get Classes from Prompt';
+            processPromptBtn.textContent = 'Run LLM';
             processPromptBtn.disabled = false;
         }
     }
@@ -563,8 +575,13 @@ document.addEventListener('DOMContentLoaded', () => {
             defaultCostmapCode.textContent = data.default;
             generatedCostmapCode.textContent = data.generated;
 
+            // Apply syntax highlighting first
             hljs.highlightElement(defaultCostmapCode);
             hljs.highlightElement(generatedCostmapCode);
+
+            // [ADD THIS] Then, apply line numbers
+            hljs.lineNumbersBlock(defaultCostmapCode);
+            hljs.lineNumbersBlock(generatedCostmapCode);
 
             generatedCostmapCode.setAttribute('contenteditable', 'false');
             generatedCostmapCode.classList.remove('ring-2', 'ring-blue-500');
@@ -591,28 +608,52 @@ document.addEventListener('DOMContentLoaded', () => {
         editCostmapBtn.disabled = true;
     }
 
-    async function handleSaveCostmap() {
-        const newCode = generatedCostmapCode.textContent;
-        saveCostmapBtn.textContent = 'Saving...';
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/save-costmap-function`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code: newCode })
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || "Failed to save.");
-            
-            alert(data.message);
-            generatedCostmapCode.setAttribute('contenteditable', 'false');
-            generatedCostmapCode.classList.remove('ring-2', 'ring-blue-500');
-            saveCostmapBtn.disabled = true;
-            editCostmapBtn.disabled = false;
+async function handleSaveCostmap() {
+    // Use our new, more reliable function to get the code
+    const newCode = getTextFromEditable(generatedCostmapCode);
+
+    saveCostmapBtn.textContent = 'Saving...';
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/save-costmap-function`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: newCode })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to save.");
+        
+        alert(data.message);
+        generatedCostmapCode.setAttribute('contenteditable', 'false');
+        generatedCostmapCode.classList.remove('ring-2', 'ring-blue-500');
+        saveCostmapBtn.disabled = true;
+        editCostmapBtn.disabled = false;
+        
+        // Re-apply highlighting and line numbers after saving
+        hljs.highlightElement(generatedCostmapCode);
+        hljs.lineNumbersBlock(generatedCostmapCode);
+
         } catch(error) {
             alert(`Save failed: ${error.message}`);
         } finally {
             saveCostmapBtn.textContent = 'Save';
         }
+    }
+
+    function getTextFromEditable(element) {
+        // This function is better at preserving whitespace than .innerText
+        let html = element.innerHTML;
+        // Convert common contenteditable newlines (<br> and <div>) to the \n character
+        html = html.replace(/<br\s*\/?>/gi, "\n");
+        html = html.replace(/<div>/gi, "\n").replace(/<\/div>/gi, "");
+        
+        // Use a temporary element to strip any remaining HTML tags (like <span> from highlighting)
+        // and decode HTML entities (like &nbsp;) into actual spaces.
+        const tempEl = document.createElement('div');
+        tempEl.innerHTML = html;
+        let text = tempEl.textContent || tempEl.innerText || "";
+
+        // Finally, remove any trailing newlines that might have been added
+        return text.trimEnd();
     }
 
     async function handleRestoreCostmap() {
@@ -665,7 +706,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function initializeWorldMap() {
         if (worldMap) return; 
 
-        worldMap = L.map('world-map').setView([30.2672, -97.7431], 13);
+        // worldMap = L.map('world-map').setView([30.2672, -97.7431], 13);
+        worldMap = L.map('world-map').setView([50,-90], 3);
         L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{ maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'], attribution: '&copy; Google' }).addTo(worldMap);
         drawnItems = new L.FeatureGroup();
         worldMap.addLayer(drawnItems);
