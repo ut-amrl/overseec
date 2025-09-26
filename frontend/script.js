@@ -99,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         plannerStatus = document.getElementById('planner-status'),
         plannerCoords = document.getElementById('planner-coords');
 
-    const API_BASE_URL = 'http://127.0.0.1:5002';
+    const API_BASE_URL = '';
     let currentClasses = [], worldMap, drawnItems, capturedBounds, progressInterval, gpuPollInterval, consolePollInterval;
     let panzoomState = { scale: 1, translateX: 0, translateY: 0, isPanning: false, startX: 0, startY: 0 };
     let currentResultData = null; 
