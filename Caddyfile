@@ -1,0 +1,3 @@
+{$SITE_HOSTNAME} {
+    reverse_proxy app:5002
+}
