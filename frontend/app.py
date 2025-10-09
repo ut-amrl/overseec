@@ -783,5 +783,23 @@ def download_costmap():
     else:
         return jsonify({"error": f"Unsupported format: {format_choice}"}), 400
 
+@app.route("/api/upload-tiff", methods=["POST"])
+def upload_tiff():
+    """
+    Upload a new TIFF file and save it to TIFF_FOLDER.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = request.files["file"]
+    if not file.filename.lower().endswith((".tif", ".tiff")):
+        return jsonify({"error": "Only .tif or .tiff files are allowed"}), 400
+
+    save_path = os.path.join(TIFF_FOLDER, file.filename)
+    file.save(save_path)
+
+    return jsonify({"message": "TIFF uploaded successfully", "filename": file.filename})
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5002, host='0.0.0.0')

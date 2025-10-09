@@ -297,7 +297,18 @@ Images and Natural Language</p></div>
                 <div class="bg-white p-6 rounded-2xl shadow-lg border border-gray-200">
                     <div class="mb-6">
                         <label for="tiff-select" class="block text-lg font-semibold mb-2">Select a TIFF File</label>
-                        <select id="tiff-select" class="w-full p-3 border border-gray-300 rounded-lg bg-white"><option value="">-- Loading files --</option></select>
+                        <!-- <select id="tiff-select" class="w-full p-3 border border-gray-300 rounded-lg bg-white"><option value="">-- Loading files --</option></select>
+                          -->
+                        <div class="flex items-center gap-2">
+                            <select id="tiff-select" class="bg-gray-800 text-white p-2 rounded-lg">
+                                <option value="">-- Select Existing TIFF --</option>
+                            </select>
+
+                            <label for="tiff-upload" class="bg-gray-700 text-white px-3 py-2 rounded-lg cursor-pointer hover:bg-gray-600 transition">
+                                Upload TIFF
+                            </label>
+                            <input id="tiff-upload" type="file" accept=".tif,.tiff" class="hidden" />
+                        </div>
                         <button id="load-server-masks-btn" class="w-full bg-yellow-500 text-black font-bold py-3 px-4 rounded-lg hover:bg-yellow-600 transition disabled:bg-gray-400 mt-2" disabled>Load Masks</button>
                     </div>
                     <div class="space-y-3">

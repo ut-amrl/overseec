@@ -1232,6 +1232,45 @@ async function handleSaveCostmap() {
         confirmClassesBtn.textContent = "Config Logged!";
         setTimeout(() => { confirmClassesBtn.textContent = "Confirm Classes & Log Config"; }, 2000);
     });
+
+    document.getElementById("tiff-upload").addEventListener("change", async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/upload-tiff`, {
+                method: "POST",
+                body: formData
+            });
+
+            const result = await response.json();
+            if (!response.ok) {
+                alert(`Upload failed: ${result.error}`);
+                return;
+            }
+
+            alert("✅ TIFF uploaded successfully!");
+
+            // Update dropdown dynamically
+            const select = document.getElementById("tiff-select");
+            const option = document.createElement("option");
+            option.value = result.filename;
+            option.textContent = result.filename;
+            select.appendChild(option);
+            select.value = result.filename; // auto-select newly uploaded file
+
+        } catch (error) {
+            console.error("Error uploading TIFF:", error);
+            alert("Upload failed due to network error.");
+        } finally {
+            // reset input for next upload
+            event.target.value = "";
+        }
+    });
+
     
     updateParamsBtn.addEventListener('click', () => {
         console.log("Parameters Updated:", collectFinalConfig().params);
