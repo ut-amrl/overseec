@@ -88,6 +88,7 @@ document.addEventListener('DOMContentLoaded', () => {
         refinedSlider = document.getElementById('refined-slider');
 
     const planOverMapBtn = document.getElementById('plan-over-map-btn'),
+        downloadCostmapBtn = document.getElementById('download-costmap-btn'),
         plannerModal = document.getElementById('planner-modal'),
         closePlannerBtn = document.getElementById('close-planner-btn'),
         plannerImgBg = document.getElementById('planner-img-bg'),
@@ -859,6 +860,38 @@ async function handleSaveCostmap() {
         document.body.style.overflow = '';
     }
 
+    async function handleDownloadCostmap() {
+        if (!currentCostmapUrl) {
+            alert("No costmap is available to download.");
+            return;
+        }
+
+        const fullUrl = `${API_BASE_URL}${currentCostmapUrl}`;
+        const filename = currentCostmapUrl.split('/').pop() || 'costmap.png';
+
+        try {
+            // Fetch the file as a blob
+            const response = await fetch(fullUrl);
+            if (!response.ok) throw new Error("Failed to fetch costmap for download.");
+            const blob = await response.blob();
+
+            // Create a blob URL and trigger download
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+
+            // Clean up
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            alert(`Download failed: ${error.message}`);
+        }
+    }
+
+
     // --- [MODIFIED] Planner Functions ---
 
     function redrawAllPlannerElements() {
@@ -1220,6 +1253,7 @@ async function handleSaveCostmap() {
     });
 
     planOverMapBtn.addEventListener('click', showPlannerModal);
+    downloadCostmapBtn.addEventListener('click', handleDownloadCostmap);
     closePlannerBtn.addEventListener('click', hidePlannerModal);
     plannerCanvas.addEventListener('click', handlePlannerClick);
     plannerCanvas.addEventListener('mousemove', handlePlannerMouseMove);
