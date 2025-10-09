@@ -859,37 +859,64 @@ async function handleSaveCostmap() {
         classDetailModal.classList.remove('flex');
         document.body.style.overflow = '';
     }
-
     async function handleDownloadCostmap() {
         if (!currentCostmapUrl) {
-            alert("No costmap is available to download.");
+            alert("No costmap available for download.");
             return;
         }
 
-        const fullUrl = `${API_BASE_URL}${currentCostmapUrl}`;
-        const filename = currentCostmapUrl.split('/').pop() || 'costmap.png';
+        // --- Get user choice from dropdown ---
+        const formatChoice = document.getElementById("download-format").value;
+        // Optional: if your app tracks the original GeoTIFF name
+        const tiffFile = document.getElementById("tiff-select")?.value || null;
 
         try {
-            // Fetch the file as a blob
-            const response = await fetch(fullUrl);
-            if (!response.ok) throw new Error("Failed to fetch costmap for download.");
-            const blob = await response.blob();
+            // Show feedback
+            const downloadBtn = document.getElementById("download-costmap-btn");
+            const originalText = downloadBtn.textContent;
+            downloadBtn.textContent = "Preparing...";
+            downloadBtn.disabled = true;
 
-            // Create a blob URL and trigger download
-            const blobUrl = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = filename;
+            // --- Ask backend to prepare and send the file ---
+            const response = await fetch(`${API_BASE_URL}/api/download-costmap`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    format: formatChoice,
+                    costmap_url: currentCostmapUrl,
+                    tiff_filename: tiffFile
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                alert("Download failed: " + (err.error || "Unknown error"));
+                downloadBtn.textContent = originalText;
+                downloadBtn.disabled = false;
+                return;
+            }
+
+            // --- Convert to blob and trigger download ---
+            const blob = await response.blob();
+            const ext = formatChoice === "tiff" ? "tif" : "png";
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `costmap_${Date.now()}.${ext}`;
             document.body.appendChild(link);
             link.click();
-
-            // Clean up
             document.body.removeChild(link);
-            URL.revokeObjectURL(blobUrl);
+
         } catch (error) {
-            alert(`Download failed: ${error.message}`);
+            console.error("Download error:", error);
+            alert("An error occurred while downloading the costmap.");
+        } finally {
+            // Restore button state
+            const downloadBtn = document.getElementById("download-costmap-btn");
+            downloadBtn.textContent = "Download";
+            downloadBtn.disabled = false;
         }
     }
+
 
 
     // --- [MODIFIED] Planner Functions ---

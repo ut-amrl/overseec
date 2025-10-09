@@ -1,6 +1,6 @@
 import os
 import shutil
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, send_file
 from flask_cors import CORS
 import time
 import random
@@ -18,6 +18,7 @@ from multiprocessing import Process, Queue
 import importlib.util
 import matplotlib.pyplot as plt
 import cv2
+import osgeo.gdal as gdal
 # --- Disable Flask's default request logger ---
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -708,6 +709,79 @@ def load_masks_from_folder(run_id):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/download-costmap", methods=["POST"])
+def download_costmap():
+    """
+    Create a downloadable costmap in PNG or GeoTIFF format.
+    """
+    data = request.json
+    format_choice = data.get("format", "png")  # "png" or "tiff"
+    costmap_url = data.get("costmap_url")
+    tiff_filename = data.get("tiff_filename")
+
+    if not costmap_url:
+        return jsonify({"error": "No costmap file provided."}), 400
+
+    costmap_path = os.path.join(_basedir, costmap_url.lstrip('/'))
+    if not os.path.exists(costmap_path):
+        return jsonify({"error": "Costmap file not found."}), 404
+
+    if format_choice == "png":
+        # Simply return PNG directly
+        return send_file(costmap_path, as_attachment=True)
+
+    elif format_choice == "tiff":
+        if not tiff_filename:
+            return jsonify({"error": "Original GeoTIFF filename required for TIFF download."}), 400
+
+        input_tiff = os.path.join(TIFF_FOLDER, tiff_filename)
+        if not os.path.exists(input_tiff):
+            return jsonify({"error": f"Original GeoTIFF '{tiff_filename}' not found."}), 404
+
+        # Prepare output path
+        output_dir = os.path.join(RESULTS_FOLDER, "final_costmaps")
+        os.makedirs(output_dir, exist_ok=True)
+        output_tiff = os.path.join(output_dir, f"{os.path.splitext(tiff_filename)[0]}_costmap.tif")
+
+        try:
+            # --- Replace image inside the original GeoTIFF ---
+            dataset = gdal.Open(input_tiff, gdal.GA_ReadOnly)
+            geotransform = dataset.GetGeoTransform()
+            projection = dataset.GetProjection()
+
+            new_image = cv2.imread(costmap_path, cv2.IMREAD_UNCHANGED)
+            if new_image is None:
+                raise ValueError("Failed to read the generated costmap.")
+
+            height, width = new_image.shape[:2]
+            bands = new_image.shape[2] if len(new_image.shape) == 3 else 1
+
+            driver = gdal.GetDriverByName("GTiff")
+            new_dataset = driver.Create(output_tiff, width, height, bands, gdal.GDT_Byte)
+
+            if geotransform:
+                new_dataset.SetGeoTransform(geotransform)
+            if projection:
+                new_dataset.SetProjection(projection)
+
+            if bands > 1:
+                for i in range(bands):
+                    new_dataset.GetRasterBand(i + 1).WriteArray(new_image[:, :, i])
+            else:
+                new_dataset.GetRasterBand(1).WriteArray(new_image)
+
+            new_dataset.FlushCache()
+            new_dataset = None
+            dataset = None
+
+            return send_file(output_tiff, as_attachment=True)
+
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            return jsonify({"error": f"Failed to create GeoTIFF: {e}"}), 500
+
+    else:
+        return jsonify({"error": f"Unsupported format: {format_choice}"}), 400
 
 if __name__ == "__main__":
     app.run(debug=True, port=5002, host='0.0.0.0')
