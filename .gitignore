@@ -11,3 +11,4 @@ frontend/costmap_functions/
 results/
 geotiffs/
 generated_costmap.py
+.env

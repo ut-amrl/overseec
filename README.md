@@ -62,10 +62,10 @@ You can set up the project using either Conda for a local installation or Docker
 
 ## Usage
 
+### Interactive
 The `start_overseec.sh` script automates the setup process by launching the VLLM server and the frontend application in a `tmux` session.
 
-### Script Arguments
-
+#### Script Arguments
 The script is configured using the following command-line arguments. The order of arguments does not matter.
 
 | Argument           | Description                                                                                                                           | Example                                     |
@@ -75,7 +75,7 @@ The script is configured using the following command-line arguments. The order o
 | **`--dir`**        | Specifies the project's root directory. Defaults to the current directory where the script is run.                                    | `--dir /home/user/overseec`                 |
 | **`--vllm-device`**| Sets the `CUDA_VISIBLE_DEVICES` for the VLLM server to control which GPU(s) are used. Can be a single ID or a comma-separated list.    | `--vllm-device "0,1"`                      |
 
-### Command Examples
+#### Command Examples
 
 **1. Basic Usage (Conda Installation)**
 This command activates your specified Conda environment and starts the services, prompting you to select an LLM interactively.
@@ -101,4 +101,18 @@ When you are inside the Docker container, the environment is already set up, so 
 
 # This is for running a specific vllm model on a device in docker 
 ./start_overseec.sh --env no_conda --vllm-model Qwen2.5-Coder-14B-Instruct --vllm-device "1,2"
+```
+
+### Docker Compose
+A Docker Compose configuration is provided for automatic web hosting using https and a reverse proxy via Caddy.
+
+To use this setup, you must create and define a `.env` file in the root directory of the repo with the following line:
+```
+SITE_HOSTNAME=<your.server.domain.name>
+```
+
+Then running OVerSeeC and Caddy is accomplished via
+```
+$ cd /path/to/overseec/repo
+$ docker compose up -d
 ```

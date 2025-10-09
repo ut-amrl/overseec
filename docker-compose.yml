@@ -1,0 +1,54 @@
+services:
+  app:
+    image: overseec-cu128
+    stdin_open: true
+    tty: true
+    volumes:
+      - .:/workspace/overseec
+      - ./checkpoints:/workspace/overseec/checkpoints
+    working_dir: /workspace/overseec
+    command: ["./start_overseec.sh", "--env", "no_conda", "--vllm-model", "Qwen2.5-Coder-14B-Instruct", "--vllm-device", "1"]
+    expose:
+      - "5002"
+    networks:
+      - overseec_network
+    ipc: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:latest
+    networks:
+      - overseec_network
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - SITE_HOSTNAME=${SITE_HOSTNAME} # read from .env
+    restart: unless-stopped
+    depends_on:
+      - app
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  overseec_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+          gateway: 172.20.0.1
+    driver_opts:
+      com.docker.network.dns: "8.8.8.8"
