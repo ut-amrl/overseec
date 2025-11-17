@@ -15,7 +15,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-dev python3-venv \
+    python3 python3-pip python3-dev python3-venv python3-gdal\
     git build-essential cmake ninja-build \
     libgl1 libglib2.0-0 curl ca-certificates wget tmux && \
     rm -rf /var/lib/apt/lists/*
