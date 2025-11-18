@@ -254,16 +254,16 @@ def wrap_prompt(prompt: str) -> str:
 
 #         default classes : "road", "trail or footway", "water", "grass", "building", and "tree".
 
-#         the classes specified by the user int the actual user preference and use classes in default classes which are not specfied.
-#         if default classes are not specified, use the default classes and their values as mentioned above.
+#         the classes specified by the user in the actual user preference and use classes in default classes which are not specfied.
+#         if default classes are not specified, use the default classes and their values as mentioned above. do not try to define costmap values for classes for which a logit/mask does not exist.
 
 #         for task 1 output should be between the <DICT> and </DICT> markers.
 #         for task 2 infer the hierarchies and list them in <HIER> and </HIER> markers. Use these in task 3.
 #         for task 3 output should be between the <CODE> and </CODE> markers, output should be python file only with the function and the imports,
 #         for task 4 explain the costfunction and tell me whether the generated cost function is correct or not. explain if the cost function actually looked into heirrchy and correctly treat it also make sure you used the default classes and their values as mentioned above.
 #         no explanations, no quotes, no extra text.
-        
-        
+
+
 #         """.replace("{user_prompt}", user_prompt)
 #     wrapped = wrap_prompt(prompt)
 #     payload = {"texts": [wrapped]}
