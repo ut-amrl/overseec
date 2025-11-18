@@ -2,7 +2,7 @@ import ast
 import requests
 import textwrap
 
-SERVER_URL = "http://127.0.0.1:8000/generate"  # Update if running on a different host
+SERVER_URL = "http://0.0.0.0:8000/generate"  # Update if running on a different host
 
 def extract_dict_and_write_code(text: str, filepath: str):
     # Extract dictionary
