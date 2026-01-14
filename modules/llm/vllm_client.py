@@ -2,7 +2,7 @@ import ast
 import requests
 import textwrap
 
-SERVER_URL = "http://127.0.0.1:8000/generate"  # Update if running on a different host
+SERVER_URL = "http://127.0.0.1:8057/generate"  # Update if running on a different host
 
 def extract_dict_and_write_code(text: str, filepath: str):
     # Extract dictionary
@@ -503,6 +503,7 @@ def generate_costmap(mask_dict, t_dict={{"t_l":0.4, "t_a":0.6}}, device="cpu"):
         use the classes only specified by the user between the tags <USER_PROMPT> </USER_PROMPT>. 
         if default classes are not specified, use the default classes and their values as mentioned above.
 
+        PLEASE USE THE DEFAULT CLASSES AND THEIR VALUES IF THEY ARE NOT SPECIFIED IN THE USER PROMPT.
         for task 1 output should be between the <DICT> and </DICT> markers. Recheck if any classes it outside the classes specifed in the <USER_PROMPT> </USER_PROMPT> and default classes.
         for task 2 infer the hierarchies and list them in <HIER> and </HIER> markers. Use these in task 3.
         for task 3 output should be between the <CODE> and </CODE> markers, output should be python file only with the function and the imports,

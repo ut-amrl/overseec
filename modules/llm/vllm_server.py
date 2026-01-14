@@ -43,12 +43,12 @@ async def generate_response(request: InferenceRequest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cuda", type=str, default="7")
+    parser.add_argument("--cuda", type=str, default="0")
     
     parser.add_argument("--model", type=LLMZoo, default=None, choices=list(LLMZoo), help="The model to use. If not provided, an interactive menu will be shown.")
         
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=8057)
     args = parser.parse_args()
 
     if args.model is None:

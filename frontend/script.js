@@ -575,6 +575,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             defaultCostmapCode.textContent = data.default;
             generatedCostmapCode.textContent = data.generated;
+            defaultCostmapCode.dataset.raw = data.default;
+            generatedCostmapCode.dataset.raw = data.generated;
 
             // Apply syntax highlighting first
             hljs.highlightElement(defaultCostmapCode);
@@ -602,6 +604,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleEditCostmap() {
+        const rawCode = generatedCostmapCode.dataset.raw || generatedCostmapCode.textContent;
+        generatedCostmapCode.textContent = rawCode;
         generatedCostmapCode.setAttribute('contenteditable', 'true');
         generatedCostmapCode.classList.add('ring-2', 'ring-blue-500');
         generatedCostmapCode.focus();
@@ -630,6 +634,8 @@ async function handleSaveCostmap() {
         editCostmapBtn.disabled = false;
         
         // Re-apply highlighting and line numbers after saving
+        generatedCostmapCode.textContent = newCode;
+        generatedCostmapCode.dataset.raw = newCode;
         hljs.highlightElement(generatedCostmapCode);
         hljs.lineNumbersBlock(generatedCostmapCode);
 
@@ -645,7 +651,8 @@ async function handleSaveCostmap() {
         let html = element.innerHTML;
         // Convert common contenteditable newlines (<br> and <div>) to the \n character
         html = html.replace(/<br\s*\/?>/gi, "\n");
-        html = html.replace(/<div>/gi, "\n").replace(/<\/div>/gi, "");
+        html = html.replace(/<div[^>]*>/gi, "\n").replace(/<\/div>/gi, "");
+        html = html.replace(/<p[^>]*>/gi, "\n").replace(/<\/p>/gi, "");
         
         // Use a temporary element to strip any remaining HTML tags (like <span> from highlighting)
         // and decode HTML entities (like &nbsp;) into actual spaces.
@@ -654,7 +661,7 @@ async function handleSaveCostmap() {
         let text = tempEl.textContent || tempEl.innerText || "";
 
         // Finally, remove any trailing newlines that might have been added
-        return text.trimEnd();
+        return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
     }
 
     async function handleRestoreCostmap() {
@@ -678,6 +685,7 @@ async function handleSaveCostmap() {
 
             // 3. Update the UI with the new content
             generatedCostmapCode.textContent = contentData.generated;
+            generatedCostmapCode.dataset.raw = contentData.generated;
             hljs.highlightElement(generatedCostmapCode);
 
             // 4. Reset the editor state

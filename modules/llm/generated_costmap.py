@@ -20,6 +20,7 @@ def convert_masks2torch(mask_dict, device):
             mask_dict[key] = torch.from_numpy(mask_dict[key]).to(device)
     return mask_dict  
 
+
 def generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}, device="cpu"):
     shape = next(iter(mask_dict.values())).shape
     mask_dict = convert_masks2torch(mask_dict, device)
@@ -41,9 +42,9 @@ def generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}, device="cpu"):
     trees_mask = trees_logit > t_a
     water_mask = water_logit > t_a
 
-    # Hierarchy
-    # Nothing for now
 
+
+    # Hierarchy
     # Geometry
     # Nothing for now
 
