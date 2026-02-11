@@ -14,7 +14,8 @@ import json
 import re
 import sys
 import logging
-from multiprocessing import Process, Queue
+import multiprocessing
+from multiprocessing import Queue
 import importlib.util
 import matplotlib.pyplot as plt
 import cv2
@@ -86,7 +87,9 @@ console_log = ConsoleLog()
 
 # --- Multiprocessing and Task Management ---
 pipeline_processes = {}
-log_queue = Queue()
+# Use spawn context for CUDA compatibility
+mp_ctx = multiprocessing.get_context('spawn')
+log_queue = mp_ctx.Queue()
 
 def log_listener(queue, logger):
     while True:
@@ -101,6 +104,49 @@ listener_thread = Thread(target=log_listener, args=(log_queue, console_log))
 listener_thread.daemon = True
 listener_thread.start()
 
+def _get_tiff_folder_name(tiff_filename):
+    """Get the results folder name for a given tiff filename.
+    Only strips .tif/.tiff extensions, preserves dots in names like 'pickle-north-0.2'."""
+    import re
+    name = os.path.basename(tiff_filename)
+    # Only strip .tif or .tiff extension (case-insensitive)
+    return re.sub(r'\.tiff?$', '', name, flags=re.IGNORECASE)
+
+def _resolve_tiff_path(tiff_identifier):
+    """Resolve a tiff identifier to the actual file path.
+    Checks results/<name>/original.tif first, then uploads/tiffs/<name>."""
+    # Check new location first
+    new_path = os.path.join(RESULTS_FOLDER, tiff_identifier, "original.tif")
+    if os.path.exists(new_path):
+        return new_path
+    # Fallback to old location (with original extension)
+    for ext in ['.tif', '.tiff']:
+        old_path = os.path.join(TIFF_FOLDER, tiff_identifier + ext)
+        if os.path.exists(old_path):
+            return old_path
+    # Try exact filename in old location
+    old_path = os.path.join(TIFF_FOLDER, tiff_identifier)
+    if os.path.exists(old_path):
+        return old_path
+    return None
+
+def _ensure_tiff_in_results(tiff_filename):
+    """Ensure the TIFF is copied to results/<name>/original.tif.
+    Returns the tiff folder name."""
+    folder_name = _get_tiff_folder_name(tiff_filename)
+    tiff_results_dir = os.path.join(RESULTS_FOLDER, folder_name)
+    os.makedirs(tiff_results_dir, exist_ok=True)
+    dest_path = os.path.join(tiff_results_dir, "original.tif")
+    if not os.path.exists(dest_path):
+        # Try to find the source TIFF
+        src_path = os.path.join(TIFF_FOLDER, tiff_filename)
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, dest_path)
+            print(f"Copied TIFF to {dest_path}")
+        else:
+            print(f"WARNING: Source TIFF not found at {src_path}")
+    return folder_name
+
 def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
     class QueueLogger:
         def __init__(self, queue): self.queue = queue
@@ -111,7 +157,14 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
     sys.stderr = QueueLogger(log_q)
 
     try:
-        sat_img_path = os.path.join(TIFF_FOLDER, tiff_filename)
+        # Resolve the TIFF path
+        sat_img_path = _resolve_tiff_path(tiff_filename)
+        if sat_img_path is None:
+            sat_img_path = os.path.join(TIFF_FOLDER, tiff_filename)
+        
+        # Always ensure the TIFF is stored in results/<name>/original.tif
+        tiff_folder_name = _ensure_tiff_in_results(tiff_filename)
+
         clipseg_classes, clipseg_classes_semseg_knobs = {}, {}
         for class_obj in classes_data:
             color_str = class_obj.get("color", "rgb(0,0,0)")
@@ -137,11 +190,18 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
         overseec_sat_2_mask = OVerSeeC(config=final_config)
         (clipseg_sigmoid_mask_refiner_logits, _, _, clipseg_sigmoid_semseg_logits, _) = overseec_sat_2_mask(sat_img_path, None)
         
-        run_id = f"{os.path.splitext(tiff_filename)[0]}_{int(time.time())}"
-        semantic_mask_dir = os.path.join(RESULTS_FOLDER, run_id, "semantic")
-        refined_mask_dir = os.path.join(RESULTS_FOLDER, run_id, "refined")
+        # Save to temp_latest inside the tiff's results folder
+        temp_dir = os.path.join(RESULTS_FOLDER, tiff_folder_name, "temp_latest")
+        # Clean up old temp_latest if it exists
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        semantic_mask_dir = os.path.join(temp_dir, "semantic")
+        refined_mask_dir = os.path.join(temp_dir, "refined")
         os.makedirs(semantic_mask_dir, exist_ok=True)
         os.makedirs(refined_mask_dir, exist_ok=True)
+
+        # Build URL path relative to results/
+        url_prefix = f"{tiff_folder_name}/temp_latest"
 
         semantic_masks_urls, refined_masks_urls = {}, {}
         class_names = list(clipseg_classes.keys())
@@ -156,7 +216,7 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
             save_tensor_as_image(sem_tensor_slice, sem_path)
             sem_numpy_array = sem_tensor_slice.cpu().numpy() if hasattr(sem_tensor_slice, 'cpu') else np.array(sem_tensor_slice)
             np.save(sem_npy_path, sem_numpy_array)
-            semantic_masks_urls[class_name] = f"/results/{run_id}/semantic/{class_name_safe}.png"
+            semantic_masks_urls[class_name] = f"/results/{url_prefix}/semantic/{class_name_safe}.png"
 
             # --- Save PNG and NPY for Refined Mask ---
             ref_path = os.path.join(refined_mask_dir, f"{class_name_safe}.png")
@@ -165,18 +225,21 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
             save_tensor_as_image(ref_tensor_slice, ref_path)
             ref_numpy_array = ref_tensor_slice.cpu().numpy() if hasattr(ref_tensor_slice, 'cpu') else np.array(ref_tensor_slice)
             np.save(ref_npy_path, ref_numpy_array)
-            refined_masks_urls[class_name] = f"/results/{run_id}/refined/{class_name_safe}.png"
+            refined_masks_urls[class_name] = f"/results/{url_prefix}/refined/{class_name_safe}.png"
 
-        print("--- Model processing complete, masks saved. ---")
+        print("--- Model processing complete, masks saved to temp_latest. ---")
         results_data = {
             "message": "Pipeline completed successfully!",
             "semantic_masks": semantic_masks_urls,
-            "refined_masks": refined_masks_urls
+            "refined_masks": refined_masks_urls,
+            "tiff_folder": tiff_folder_name
         }
         with open(os.path.join(RESULTS_FOLDER, f"{task_id}.json"), 'w') as f:
             json.dump(results_data, f)
     except Exception as e:
         print(f"!!! PIPELINE ERROR for task {task_id}: {e}")
+        import traceback
+        traceback.print_exc()
         with open(os.path.join(RESULTS_FOLDER, f"{task_id}.error"), 'w') as f:
             f.write(str(e))
 
@@ -190,6 +253,25 @@ PREVIEWS_FOLDER = os.path.join(_basedir, "previews")
 TEMP_FOLDER = os.path.join(_basedir, "temp_tiles")
 RESULTS_FOLDER = os.path.join(_basedir, "results")
 COSTMAP_FUNCTIONS_FOLDER = os.path.join(_basedir, "costmap_functions")
+TEMP_PARAMS_FILE = os.path.join(_basedir, "temp_parameters.json")
+
+# Default parameters
+DEFAULT_PARAMS = {
+    "areal_threshold": "0.8",
+    "linear_threshold": "0.4",
+    "model_name": "clipseg",
+    "mask_refiner_name": "samrefiner",
+    "sam_model": "vit_h",
+    "cmap_device": "cuda:0",
+    "sam_device": "cuda:0",
+    "semseg_device": "cuda:0",
+    "semseg_tile_size": "512",
+    "semseg_stride": "256",
+    "refiner_tile_size": "512",
+    "refiner_stride": "256",
+    "semseg_combine_method": "max",
+    "refiner_combine_method": "max"
+}
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
@@ -304,7 +386,10 @@ def perform_rasterization(task_id, bounds_str, filename, resolution, tile_size):
         out_meta = sources_to_merge[0].meta.copy()
         out_meta.update({"driver": "GTiff", "height": mosaic.shape[1], "width": mosaic.shape[2], "transform": out_trans, "crs": "EPSG:4326"})
         rasterization_tasks[task_id] = {"progress": 90, "status": "Saving final GeoTIFF..."}
+        # Save to uploads/tiffs as before (for backward compat)
         with rasterio.open(os.path.join(TIFF_FOLDER, filename), "w", **out_meta) as dest: dest.write(mosaic)
+        # Also save to organized results structure
+        _ensure_tiff_in_results(filename)
         shutil.rmtree(task_temp_folder)
         rasterization_tasks[task_id] = {"progress": 100, "status": "Completed", "filename": filename}
     except Exception as e:
@@ -389,10 +474,13 @@ def generate_preview():
     data = request.json
     filename = data.get("filename")
     if not filename: return jsonify({"error": "No filename provided."}), 400
-    tiff_path = os.path.join(TIFF_FOLDER, filename)
+    # Try to resolve the tiff path from the new structure first
+    tiff_path = _resolve_tiff_path(filename)
+    if tiff_path is None:
+        tiff_path = os.path.join(TIFF_FOLDER, filename)
     if not os.path.exists(tiff_path): return jsonify({"error": "File not found."}), 404
     try:
-        preview_filename = f"{os.path.splitext(filename)[0]}_{int(time.time())}.png"
+        preview_filename = f"{_get_tiff_folder_name(filename)}_{int(time.time())}.png"
         preview_path = os.path.join(PREVIEWS_FOLDER, preview_filename)
         with Image.open(tiff_path) as img:
             img.thumbnail((800, 800)); img.convert("RGB").save(preview_path, "PNG")
@@ -401,7 +489,20 @@ def generate_preview():
 
 @app.route("/api/get-tiff-files", methods=["GET"])
 def get_tiff_files():
-    try: return jsonify({"files": [f for f in os.listdir(TIFF_FOLDER) if f.lower().endswith(('.tiff', '.tif'))]})
+    try:
+        files = set()
+        # Scan results/ for folders containing original.tif (new structure)
+        if os.path.exists(RESULTS_FOLDER):
+            for name in os.listdir(RESULTS_FOLDER):
+                result_dir = os.path.join(RESULTS_FOLDER, name)
+                if os.path.isdir(result_dir) and os.path.exists(os.path.join(result_dir, "original.tif")):
+                    files.add(name)
+        # Also scan uploads/tiffs for backward compatibility
+        if os.path.exists(TIFF_FOLDER):
+            for f in os.listdir(TIFF_FOLDER):
+                if f.lower().endswith(('.tiff', '.tif')):
+                    files.add(f)
+        return jsonify({"files": sorted(list(files))})
     except Exception as e: return jsonify({"error": str(e)}), 500
 
 @app.route("/api/process-prompt", methods=["POST"])
@@ -443,7 +544,7 @@ def run_pipeline():
         data.get("params", {})
     )
     
-    process = Process(target=pipeline_worker, args=worker_args)
+    process = mp_ctx.Process(target=pipeline_worker, args=worker_args)
     process.start()
     pipeline_processes[task_id] = process
     
@@ -459,7 +560,10 @@ def pipeline_status(task_id):
             results = json.load(f)
         if task_id in pipeline_processes:
             del pipeline_processes[task_id]
-        os.remove(result_file)
+        try:
+            os.remove(result_file)
+        except FileNotFoundError:
+            pass
         return jsonify({"status": "completed", "results": results})
     
     if os.path.exists(error_file):
@@ -467,7 +571,10 @@ def pipeline_status(task_id):
             error_message = f.read()
         if task_id in pipeline_processes:
             del pipeline_processes[task_id]
-        os.remove(error_file)
+        try:
+            os.remove(error_file)
+        except FileNotFoundError:
+            pass
         return jsonify({"status": "error", "message": error_message})
 
     process = pipeline_processes.get(task_id)
@@ -489,6 +596,125 @@ def cancel_pipeline(task_id):
             del pipeline_processes[task_id]
         return jsonify({"message": f"Pipeline task {task_id} canceled."})
     return jsonify({"error": "Task not found or already finished."}), 404
+
+# --- Saved Goals Endpoints ---
+@app.route("/api/goals", methods=["GET"])
+def get_goals():
+    tiff_name = request.args.get("tiff_name")
+    if not tiff_name:
+         return jsonify({"error": "Missing tiff_name parameter."}), 400
+    
+    goals_file = os.path.join(RESULTS_FOLDER, tiff_name, "goals.json")
+    if not os.path.exists(goals_file):
+        return jsonify({"goals": []})
+        
+    try:
+        with open(goals_file, 'r') as f:
+            goals = json.load(f)
+        return jsonify({"goals": goals})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/goals", methods=["POST"])
+def save_goal():
+    data = request.json
+    tiff_name = data.get("tiff_name")
+    start = data.get("start")
+    end = data.get("end")
+    
+    if not tiff_name or not start or not end:
+        return jsonify({"error": "Missing parameters."}), 400
+        
+    goals_dir = os.path.join(RESULTS_FOLDER, tiff_name)
+    if not os.path.exists(goals_dir):
+        return jsonify({"error": "TIFF results directory not found."}), 404
+        
+    goals_file = os.path.join(goals_dir, "goals.json")
+    goals = []
+    if os.path.exists(goals_file):
+        try:
+            with open(goals_file, 'r') as f:
+                goals = json.load(f)
+        except:
+            pass
+            
+    new_id = 1
+    if goals:
+        new_id = max(g.get("id", 0) for g in goals) + 1
+        
+    new_goal = {
+        "id": new_id,
+        "name": f"Goal {new_id}",
+        "start": start,
+        "end": end,
+        "timestamp": time.time()
+    }
+    
+    goals.append(new_goal)
+    
+    with open(goals_file, 'w') as f:
+        json.dump(goals, f, indent=2)
+        
+    return jsonify({"message": "Goal saved.", "goal": new_goal})
+
+@app.route("/api/goals/<int:goal_id>", methods=["PUT"])
+def rename_goal(goal_id):
+    data = request.json
+    tiff_name = data.get("tiff_name")
+    new_name = data.get("name")
+    
+    if not tiff_name or not new_name:
+        return jsonify({"error": "Missing parameters."}), 400
+
+    goals_file = os.path.join(RESULTS_FOLDER, tiff_name, "goals.json")
+    if not os.path.exists(goals_file):
+        return jsonify({"error": "Goals file not found."}), 404
+
+    try:
+        with open(goals_file, 'r') as f:
+            goals = json.load(f)
+        
+        goal_found = False
+        target_goal = None
+        for g in goals:
+            if g.get("id") == goal_id:
+                g["name"] = new_name
+                target_goal = g
+                goal_found = True
+                break
+        
+        if not goal_found:
+             return jsonify({"error": "Goal not found."}), 404
+             
+        with open(goals_file, 'w') as f:
+            json.dump(goals, f, indent=2)
+            
+        return jsonify({"message": "Goal renamed.", "goal": target_goal})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/goals/<int:goal_id>", methods=["DELETE"])
+def delete_goal(goal_id):
+    tiff_name = request.args.get("tiff_name")
+    if not tiff_name:
+        return jsonify({"error": "Missing tiff_name parameter."}), 400
+
+    goals_file = os.path.join(RESULTS_FOLDER, tiff_name, "goals.json")
+    if not os.path.exists(goals_file):
+        return jsonify({"error": "Goals file not found."}), 404
+
+    try:
+        with open(goals_file, 'r') as f:
+            goals = json.load(f)
+        
+        goals = [g for g in goals if g.get("id") != goal_id]
+        
+        with open(goals_file, 'w') as f:
+            json.dump(goals, f, indent=2)
+            
+        return jsonify({"message": "Goal deleted.", "goals": goals})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # --- Costmap Function Endpoints ---
 @app.route("/api/get-costmap-functions", methods=["GET"])
@@ -581,7 +807,7 @@ def generate_final_costmap():
         sys.modules['costmap_module'] = costmap_module
         spec.loader.exec_module(costmap_module)
         
-        costmap_raw = costmap_module.generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}, device="cuda:0")
+        costmap_raw = costmap_module.generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}, device="cuda:6")
 
         min_val, max_val = costmap_raw.min(), costmap_raw.max()
         if max_val == min_val:
@@ -605,9 +831,20 @@ def generate_final_costmap():
         final_path = os.path.join(costmap_path, costmap_filename)
         cv2.imwrite(final_path, (normalized_costmap * 255).astype(np.uint8))
 
+        # Also save inside the TIFF folder if we know which TIFF
+        # (the frontend sends tiff_folder in the request)
+        tiff_folder_name = data.get('tiff_folder', '')
+        if tiff_folder_name:
+            tiff_costmap_dir = os.path.join(RESULTS_FOLDER, tiff_folder_name, "costmaps")
+            os.makedirs(tiff_costmap_dir, exist_ok=True)
+            costmap_img.save(os.path.join(tiff_costmap_dir, f"{run_id}_colored.png"))
+            cv2.imwrite(os.path.join(tiff_costmap_dir, f"{run_id}_bw.png"), (normalized_costmap * 255).astype(np.uint8))
+            print(f"Costmaps also saved to {tiff_costmap_dir}")
 
-
-        return jsonify({"costmap_url": f"/results/final_costmaps/{costmap_filename}"})
+        return jsonify({
+            "costmap_url": f"/results/final_costmaps/{run_id}_bw.png",
+            "colored_url": f"/results/final_costmaps/{run_id}.png"
+        })
 
     except Exception as e:
         print(f"!!! COSTMAP GENERATION ERROR: {e}")
@@ -636,7 +873,9 @@ def plan_path():
         with Image.open(costmap_path) as img:
             costmap_for_planner = np.array(ImageOps.grayscale(img))
 
-        tiff_path = os.path.join(TIFF_FOLDER, tiff_filename)
+        tiff_path = _resolve_tiff_path(tiff_filename)
+        if not tiff_path:
+            return jsonify({"error": f"TIFF '{tiff_filename}' not found."}), 404
         with Image.open(tiff_path) as img:
             original_dims = img.size
         
@@ -667,6 +906,48 @@ def plan_path():
         traceback.print_exc()
         return jsonify({"error": f"An error occurred during planning: {e}"}), 500
 
+# --- Parameter Persistence ---
+@app.route("/api/params", methods=["GET"])
+def get_params():
+    """Load saved parameters from temp_parameters.json, or return defaults."""
+    try:
+        if os.path.exists(TEMP_PARAMS_FILE):
+            with open(TEMP_PARAMS_FILE, 'r') as f:
+                params = json.load(f)
+            # Merge with defaults to handle any new params added after save
+            merged = dict(DEFAULT_PARAMS)
+            merged.update(params)
+            return jsonify({"params": merged, "source": "saved"})
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"Corrupt temp_parameters.json, reverting to defaults: {e}")
+        try:
+            os.remove(TEMP_PARAMS_FILE)
+        except FileNotFoundError:
+            pass
+    return jsonify({"params": DEFAULT_PARAMS, "source": "default"})
+
+@app.route("/api/params", methods=["POST"])
+def save_params():
+    """Save parameters to temp_parameters.json."""
+    data = request.json or {}
+    params = data.get("params", {})
+    try:
+        with open(TEMP_PARAMS_FILE, 'w') as f:
+            json.dump(params, f, indent=2)
+        return jsonify({"message": "Parameters saved."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/params", methods=["DELETE"])
+def reset_params():
+    """Reset parameters to default by deleting temp_parameters.json."""
+    try:
+        if os.path.exists(TEMP_PARAMS_FILE):
+            os.remove(TEMP_PARAMS_FILE)
+        return jsonify({"params": DEFAULT_PARAMS, "message": "Parameters reset to default."})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/api/get-result-folders", methods=["GET"])
 def get_result_folders():
     try:
@@ -676,6 +957,245 @@ def get_result_folders():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/browse-results", methods=["POST"])
+def browse_results():
+    """Browse the results folder structure. Returns list of items at the given subpath.
+    mode: 'tiff' = only show tiff files (hide mask dirs), 'masks' = only show dirs (hide files), 'all' = show everything
+    """
+    data = request.json or {}
+    subpath = data.get("path", "")
+    mode = data.get("mode", "all")  # 'tiff', 'masks', 'all'
+    
+    # Sanitize: prevent escaping results folder
+    subpath = subpath.strip("/")
+    # Reject paths with .. to prevent directory traversal
+    if ".." in subpath:
+        return jsonify({"error": "Invalid path."}), 400
+    
+    target_dir = os.path.join(RESULTS_FOLDER, subpath) if subpath else RESULTS_FOLDER
+    
+    if not os.path.exists(target_dir) or not os.path.isdir(target_dir):
+        return jsonify({"error": "Path not found."}), 404
+    
+    # Ensure we're still within RESULTS_FOLDER
+    real_target = os.path.realpath(target_dir)
+    real_results = os.path.realpath(RESULTS_FOLDER)
+    if not real_target.startswith(real_results):
+        return jsonify({"error": "Invalid path."}), 400
+    
+    try:
+        items = []
+        for name in sorted(os.listdir(target_dir)):
+            full_path = os.path.join(target_dir, name)
+            # Skip hidden files, special folders, and json/error task files
+            if name.startswith(".") or name == "final_costmaps":
+                continue
+            if name.endswith(".json") or name.endswith(".error"):
+                continue
+                
+            if os.path.isdir(full_path):
+                # Check if this folder contains mask PNGs (is a "run" folder)
+                has_refined = os.path.isdir(os.path.join(full_path, "refined"))
+                
+                if mode == "masks" and not subpath:
+                    # In masks mode at root, skip temp_latest dirs
+                    if name == "temp_latest":
+                        continue
+                
+                items.append({"name": name, "type": "dir", "has_masks": has_refined})
+            else:
+                if mode == "masks":
+                    # In masks mode, skip all files (we only want dirs)
+                    continue
+                    
+                items.append({"name": name, "type": "file"})
+        
+        return jsonify({"items": items, "path": subpath})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/search-masks", methods=["POST"])
+def search_masks():
+    """Search for mask folders (folders containing 'refined/' subfolder) matching a query."""
+    data = request.json or {}
+    query = data.get("query", "").strip().lower()
+    
+    if not query:
+        return jsonify({"results": []})
+    
+    results = []
+    
+    for root, dirs, files in os.walk(RESULTS_FOLDER):
+        # Get relative path from RESULTS_FOLDER
+        rel_path = os.path.relpath(root, RESULTS_FOLDER)
+        if rel_path == ".":
+            rel_path = ""
+        
+        # Skip hidden dirs and special dirs
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d != "final_costmaps"]
+        
+        folder_name = os.path.basename(root)
+        
+        # Check if this directory has a 'refined' subfolder (is a mask run folder)
+        if os.path.isdir(os.path.join(root, "refined")):
+            # Check if any part of the path matches the query
+            if query in rel_path.lower() or query in folder_name.lower():
+                results.append({
+                    "name": folder_name,
+                    "path": rel_path,
+                    "has_masks": True
+                })
+        
+        # Limit results
+        if len(results) >= 20:
+            break
+    
+    return jsonify({"results": results})
+
+@app.route("/api/rename-tiff-folder", methods=["POST"])
+def rename_tiff_folder():
+    """Rename a TIFF folder in results/."""
+    data = request.json or {}
+    old_name = data.get("old_name", "").strip()
+    new_name = data.get("new_name", "").strip()
+    
+    if not old_name or not new_name:
+        return jsonify({"error": "Both old_name and new_name are required."}), 400
+    
+    # Sanitize
+    if ".." in old_name or "/" in old_name or ".." in new_name or "/" in new_name:
+        return jsonify({"error": "Invalid folder name."}), 400
+    
+    old_path = os.path.join(RESULTS_FOLDER, old_name)
+    new_path = os.path.join(RESULTS_FOLDER, new_name)
+    
+    if not os.path.exists(old_path):
+        return jsonify({"error": f"Folder '{old_name}' not found."}), 404
+    
+    if os.path.exists(new_path):
+        return jsonify({"error": f"Folder '{new_name}' already exists."}), 409
+    
+    try:
+        os.rename(old_path, new_path)
+        
+        # Also rename in uploads/tiffs for backward compat
+        for ext in ['.tif', '.tiff']:
+            old_tiff = os.path.join(TIFF_FOLDER, old_name + ext)
+            new_tiff = os.path.join(TIFF_FOLDER, new_name + ext)
+            if os.path.exists(old_tiff):
+                os.rename(old_tiff, new_tiff)
+        
+        print(f"Renamed: {old_name} -> {new_name}")
+        return jsonify({"message": f"Renamed '{old_name}' to '{new_name}'", "new_name": new_name})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/download-result-file", methods=["POST"])
+def download_result_file():
+    """Download a file from within results/."""
+    data = request.json or {}
+    subpath = data.get("path", "").strip("/")
+    
+    if ".." in subpath:
+        return jsonify({"error": "Invalid path."}), 400
+    
+    full_path = os.path.join(RESULTS_FOLDER, subpath)
+    
+    # Ensure within RESULTS_FOLDER
+    real_path = os.path.realpath(full_path)
+    real_results = os.path.realpath(RESULTS_FOLDER)
+    if not real_path.startswith(real_results):
+        return jsonify({"error": "Invalid path."}), 400
+    
+    if not os.path.exists(full_path) or not os.path.isfile(full_path):
+        return jsonify({"error": "File not found."}), 404
+    
+    return send_file(full_path, as_attachment=True, download_name=os.path.basename(full_path))
+
+@app.route("/api/save-masks", methods=["POST"])
+def save_masks():
+    """Save masks from temp_latest to a permanent date/time folder."""
+    data = request.json
+    tiff_folder = data.get("tiff_folder")
+    suffix = data.get("suffix", "").strip()
+    
+    if not tiff_folder:
+        return jsonify({"error": "Missing tiff_folder."}), 400
+    
+    # Sanitize folder name
+    if ".." in tiff_folder or "/" in tiff_folder:
+        return jsonify({"error": "Invalid tiff_folder."}), 400
+    
+    temp_dir = os.path.join(RESULTS_FOLDER, tiff_folder, "temp_latest")
+    if not os.path.exists(temp_dir):
+        return jsonify({"error": "No temporary results found. Run the pipeline first."}), 404
+    
+    try:
+        from datetime import datetime
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H-%M-%S")
+        
+        folder_name = f"{time_str}_{suffix}" if suffix else time_str
+        
+        dest_dir = os.path.join(RESULTS_FOLDER, tiff_folder, date_str, folder_name)
+        os.makedirs(os.path.dirname(dest_dir), exist_ok=True)
+        
+        # Copy temp_latest to the new permanent location
+        shutil.copytree(temp_dir, dest_dir)
+        
+        print(f"Masks saved to: {dest_dir}")
+        return jsonify({
+            "message": f"Masks saved successfully to {tiff_folder}/{date_str}/{folder_name}",
+            "saved_path": f"{tiff_folder}/{date_str}/{folder_name}"
+        })
+    except Exception as e:
+        print(f"!!! SAVE MASKS ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/load-masks-from-path", methods=["POST"])
+def load_masks_from_path():
+    """Load masks from a specific path within results/."""
+    data = request.json or {}
+    subpath = data.get("path", "")
+    
+    # Sanitize
+    subpath = subpath.strip("/")
+    if ".." in subpath:
+        return jsonify({"error": "Invalid path."}), 400
+    
+    refined_mask_dir = os.path.join(RESULTS_FOLDER, subpath, "refined")
+    if not os.path.exists(refined_mask_dir):
+        return jsonify({"error": f"Refined masks folder not found at: {subpath}"}), 404
+    
+    try:
+        mask_urls = {}
+        first_shape = None
+        for filename in os.listdir(refined_mask_dir):
+            if filename.endswith(".png"):
+                with Image.open(os.path.join(refined_mask_dir, filename)) as img:
+                    if first_shape is None:
+                        first_shape = img.size
+                    elif img.size != first_shape:
+                        return jsonify({"error": "Masks in this folder have inconsistent shapes."}), 400
+                
+                class_name = os.path.splitext(filename)[0].replace("_", " ")
+                mask_urls[class_name] = f"/results/{subpath}/refined/{filename}"
+
+        semantic_masks = {}
+        semantic_mask_dir = os.path.join(RESULTS_FOLDER, subpath, "semantic")
+        if os.path.exists(semantic_mask_dir):
+            for filename in os.listdir(semantic_mask_dir):
+                 if filename.endswith(".png"):
+                    class_name = os.path.splitext(filename)[0].replace("_", " ")
+                    semantic_masks[class_name] = f"/results/{subpath}/semantic/{filename}"
+
+        return jsonify({"refined_masks": mask_urls, "semantic_masks": semantic_masks})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Keep old endpoint for backward compatibility
 @app.route("/api/load-masks-from-folder/<run_id>", methods=["GET"])
 def load_masks_from_folder(run_id):
     refined_mask_dir = os.path.join(RESULTS_FOLDER, run_id, "refined")
@@ -734,14 +1254,14 @@ def download_costmap():
         if not tiff_filename:
             return jsonify({"error": "Original GeoTIFF filename required for TIFF download."}), 400
 
-        input_tiff = os.path.join(TIFF_FOLDER, tiff_filename)
-        if not os.path.exists(input_tiff):
+        input_tiff = _resolve_tiff_path(tiff_filename)
+        if not input_tiff:
             return jsonify({"error": f"Original GeoTIFF '{tiff_filename}' not found."}), 404
 
         # Prepare output path
         output_dir = os.path.join(RESULTS_FOLDER, "final_costmaps")
         os.makedirs(output_dir, exist_ok=True)
-        output_tiff = os.path.join(output_dir, f"{os.path.splitext(tiff_filename)[0]}_costmap.tif")
+        output_tiff = os.path.join(output_dir, f"{_get_tiff_folder_name(tiff_filename)}_costmap.tif")
 
         try:
             # --- Replace image inside the original GeoTIFF ---
@@ -786,7 +1306,7 @@ def download_costmap():
 @app.route("/api/upload-tiff", methods=["POST"])
 def upload_tiff():
     """
-    Upload a new TIFF file and save it to TIFF_FOLDER.
+    Upload a new TIFF file and save it to both TIFF_FOLDER and results/<name>/original.tif.
     """
     if "file" not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
@@ -795,10 +1315,14 @@ def upload_tiff():
     if not file.filename.lower().endswith((".tif", ".tiff")):
         return jsonify({"error": "Only .tif or .tiff files are allowed"}), 400
 
+    # Save to uploads/tiffs (backward compat)
     save_path = os.path.join(TIFF_FOLDER, file.filename)
     file.save(save_path)
+    
+    # Also save into organized results structure
+    folder_name = _ensure_tiff_in_results(file.filename)
 
-    return jsonify({"message": "TIFF uploaded successfully", "filename": file.filename})
+    return jsonify({"message": "TIFF uploaded successfully", "filename": file.filename, "folder_name": folder_name})
 
 
 if __name__ == "__main__":

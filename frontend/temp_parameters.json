@@ -1,0 +1,18 @@
+{
+  "areal_threshold": "0.8",
+  "linear_threshold": "0.4",
+  "refiner_areal_threshold": "0.6",
+  "refiner_linear_threshold": "0.4",
+  "model_name": "clipseg",
+  "mask_refiner_name": "samrefiner",
+  "sam_model": "vit_h",
+  "cmap_device": "cuda:6",
+  "sam_device": "cuda:6",
+  "semseg_device": "cuda:6",
+  "semseg_tile_size": "256",
+  "semseg_stride": "128",
+  "refiner_tile_size": "256",
+  "refiner_stride": "128",
+  "semseg_combine_method": "max",
+  "refiner_combine_method": "max"
+}

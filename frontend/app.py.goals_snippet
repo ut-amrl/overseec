@@ -1,0 +1,58 @@
+@app.route("/api/goals", methods=["GET"])
+def get_goals():
+    tiff_name = request.args.get("tiff_name")
+    if not tiff_name:
+         return jsonify({"error": "Missing tiff_name parameter."}), 400
+    
+    goals_file = os.path.join(RESULTS_FOLDER, tiff_name, "goals.json")
+    if not os.path.exists(goals_file):
+        return jsonify({"goals": []})
+        
+    try:
+        with open(goals_file, 'r') as f:
+            goals = json.load(f)
+        return jsonify({"goals": goals})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/goals", methods=["POST"])
+def save_goal():
+    data = request.json
+    tiff_name = data.get("tiff_name")
+    start = data.get("start")
+    end = data.get("end")
+    
+    if not tiff_name or not start or not end:
+        return jsonify({"error": "Missing parameters."}), 400
+        
+    goals_dir = os.path.join(RESULTS_FOLDER, tiff_name)
+    if not os.path.exists(goals_dir):
+        return jsonify({"error": "TIFF results directory not found."}), 404
+        
+    goals_file = os.path.join(goals_dir, "goals.json")
+    goals = []
+    if os.path.exists(goals_file):
+        try:
+            with open(goals_file, 'r') as f:
+                goals = json.load(f)
+        except:
+            pass
+            
+    new_id = 1
+    if goals:
+        new_id = max(g.get("id", 0) for g in goals) + 1
+        
+    new_goal = {
+        "id": new_id,
+        "name": f"Goal {new_id}",
+        "start": start,
+        "end": end,
+        "timestamp": time.time()
+    }
+    
+    goals.append(new_goal)
+    
+    with open(goals_file, 'w') as f:
+        json.dump(goals, f, indent=2)
+        
+    return jsonify({"message": "Goal saved.", "goal": new_goal})

@@ -11,11 +11,13 @@ from enum import Enum
 
 class LLMZoo(Enum):
     GEMMA_2_27B_IT = "gemma-2-27b-it"
+    GEMMA_3_27B_IT = "gemma-3-27b-it"
     QWEN_2_5_CODER_14B_INSTRUCT = "Qwen2.5-Coder-14B-Instruct"
 
     def get_llm_name(self):
         return {
             LLMZoo.GEMMA_2_27B_IT: "google/gemma-2-27b-it",
+            LLMZoo.GEMMA_3_27B_IT: "google/gemma-3-27b-it",
             LLMZoo.QWEN_2_5_CODER_14B_INSTRUCT: "Qwen/Qwen2.5-Coder-14B-Instruct",
         }[LLMZoo(self.value)]
     
@@ -80,6 +82,8 @@ def main():
         tensor_parallel_size=max(1, num_gpus),
         dtype="bfloat16" if torch.cuda.is_bf16_supported() else "float16",
         trust_remote_code=True,
+        max_model_len=8192,  # Cap context length to fit in available KV cache memory
+        gpu_memory_utilization=0.90,  # Use more GPU memory for KV cache
     )
 
     uvicorn.run(app, host=args.host, port=args.port)
