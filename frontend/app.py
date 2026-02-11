@@ -136,6 +136,9 @@ def _ensure_tiff_in_results(tiff_filename):
     folder_name = _get_tiff_folder_name(tiff_filename)
     tiff_results_dir = os.path.join(RESULTS_FOLDER, folder_name)
     os.makedirs(tiff_results_dir, exist_ok=True)
+    # Standardized subfolders
+    os.makedirs(os.path.join(tiff_results_dir, "mask"), exist_ok=True)
+    os.makedirs(os.path.join(tiff_results_dir, "costmap"), exist_ok=True)
     dest_path = os.path.join(tiff_results_dir, "original.tif")
     if not os.path.exists(dest_path):
         # Try to find the source TIFF
@@ -190,8 +193,8 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
         overseec_sat_2_mask = OVerSeeC(config=final_config)
         (clipseg_sigmoid_mask_refiner_logits, _, _, clipseg_sigmoid_semseg_logits, _) = overseec_sat_2_mask(sat_img_path, None)
         
-        # Save to temp_latest inside the tiff's results folder
-        temp_dir = os.path.join(RESULTS_FOLDER, tiff_folder_name, "temp_latest")
+        # Save to mask/temp_latest inside the tiff's results folder
+        temp_dir = os.path.join(RESULTS_FOLDER, tiff_folder_name, "mask", "temp_latest")
         # Clean up old temp_latest if it exists
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir)
@@ -201,7 +204,7 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
         os.makedirs(refined_mask_dir, exist_ok=True)
 
         # Build URL path relative to results/
-        url_prefix = f"{tiff_folder_name}/temp_latest"
+        url_prefix = f"{tiff_folder_name}/mask/temp_latest"
 
         semantic_masks_urls, refined_masks_urls = {}, {}
         class_names = list(clipseg_classes.keys())
@@ -227,7 +230,7 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
             np.save(ref_npy_path, ref_numpy_array)
             refined_masks_urls[class_name] = f"/results/{url_prefix}/refined/{class_name_safe}.png"
 
-        print("--- Model processing complete, masks saved to temp_latest. ---")
+        print("--- Model processing complete, masks saved to mask/temp_latest. ---")
         results_data = {
             "message": "Pipeline completed successfully!",
             "semantic_masks": semantic_masks_urls,
@@ -480,10 +483,15 @@ def generate_preview():
         tiff_path = os.path.join(TIFF_FOLDER, filename)
     if not os.path.exists(tiff_path): return jsonify({"error": "File not found."}), 404
     try:
+        # Ensure results/<tiff>/ exists so we can persist a stable preview.png there too
+        tiff_folder_name = _ensure_tiff_in_results(filename)
         preview_filename = f"{_get_tiff_folder_name(filename)}_{int(time.time())}.png"
         preview_path = os.path.join(PREVIEWS_FOLDER, preview_filename)
         with Image.open(tiff_path) as img:
             img.thumbnail((800, 800)); img.convert("RGB").save(preview_path, "PNG")
+            # Also save a stable preview for this TIFF folder (used for overlays)
+            results_preview_path = os.path.join(RESULTS_FOLDER, tiff_folder_name, "preview.png")
+            img.convert("RGB").save(results_preview_path, "PNG")
         return jsonify({"preview_url": f"/previews/{preview_filename}"})
     except Exception as e: return jsonify({"error": f"Failed to generate preview: {e}"}), 500
 
@@ -807,7 +815,14 @@ def generate_final_costmap():
         sys.modules['costmap_module'] = costmap_module
         spec.loader.exec_module(costmap_module)
         
-        costmap_raw = costmap_module.generate_costmap(mask_dict, t_dict={"t_l":0.4, "t_a":0.6}, device="cuda:6")
+        tiff_folder_name = data.get('tiff_folder', '')
+        device = data.get('device', 'cpu')
+        
+        costmap_raw = costmap_module.generate_costmap(
+            mask_dict, 
+            t_dict=data.get('t_dict', {"t_l": 0.4, "t_a": 0.6}), 
+            device=device
+        )
 
         min_val, max_val = costmap_raw.min(), costmap_raw.max()
         if max_val == min_val:
@@ -816,9 +831,11 @@ def generate_final_costmap():
             normalized_costmap = (costmap_raw - min_val) / (max_val - min_val)
         
         cmap = plt.get_cmap('hot')
-        colored_costmap = (cmap(normalized_costmap)[:, :, :3] * 255).astype(np.uint8)
+        heatmap_rgb = (cmap(normalized_costmap)[:, :, :3] * 255).astype(np.uint8)
         
-        costmap_img = Image.fromarray(colored_costmap)
+        # Save a pure heatmap image (no RGB blended in).
+        # Client-side UI can overlay it over the RGB preview with an opacity slider.
+        costmap_img = Image.fromarray(heatmap_rgb)
         run_id = f"costmap_{int(time.time())}"
         costmap_filename = f"{run_id}.png"
         costmap_path = os.path.join(RESULTS_FOLDER, "final_costmaps")
@@ -832,13 +849,13 @@ def generate_final_costmap():
         cv2.imwrite(final_path, (normalized_costmap * 255).astype(np.uint8))
 
         # Also save inside the TIFF folder if we know which TIFF
-        # (the frontend sends tiff_folder in the request)
-        tiff_folder_name = data.get('tiff_folder', '')
         if tiff_folder_name:
-            tiff_costmap_dir = os.path.join(RESULTS_FOLDER, tiff_folder_name, "costmaps")
+            tiff_costmap_dir = os.path.join(RESULTS_FOLDER, tiff_folder_name, "costmap", "temp_latest")
+            if os.path.exists(tiff_costmap_dir):
+                shutil.rmtree(tiff_costmap_dir)
             os.makedirs(tiff_costmap_dir, exist_ok=True)
-            costmap_img.save(os.path.join(tiff_costmap_dir, f"{run_id}_colored.png"))
-            cv2.imwrite(os.path.join(tiff_costmap_dir, f"{run_id}_bw.png"), (normalized_costmap * 255).astype(np.uint8))
+            costmap_img.save(os.path.join(tiff_costmap_dir, "costmap.png"))
+            cv2.imwrite(os.path.join(tiff_costmap_dir, "costmap_bw.png"), (normalized_costmap * 255).astype(np.uint8))
             print(f"Costmaps also saved to {tiff_costmap_dir}")
 
         return jsonify({
@@ -992,6 +1009,8 @@ def browse_results():
                 continue
             if name.endswith(".json") or name.endswith(".error"):
                 continue
+            if mode == "masks" and name == "costmap":
+                continue
                 
             if os.path.isdir(full_path):
                 # Check if this folder contains mask PNGs (is a "run" folder)
@@ -1126,7 +1145,7 @@ def save_masks():
     if ".." in tiff_folder or "/" in tiff_folder:
         return jsonify({"error": "Invalid tiff_folder."}), 400
     
-    temp_dir = os.path.join(RESULTS_FOLDER, tiff_folder, "temp_latest")
+    temp_dir = os.path.join(RESULTS_FOLDER, tiff_folder, "mask", "temp_latest")
     if not os.path.exists(temp_dir):
         return jsonify({"error": "No temporary results found. Run the pipeline first."}), 404
     
@@ -1138,7 +1157,7 @@ def save_masks():
         
         folder_name = f"{time_str}_{suffix}" if suffix else time_str
         
-        dest_dir = os.path.join(RESULTS_FOLDER, tiff_folder, date_str, folder_name)
+        dest_dir = os.path.join(RESULTS_FOLDER, tiff_folder, "mask", date_str, folder_name)
         os.makedirs(os.path.dirname(dest_dir), exist_ok=True)
         
         # Copy temp_latest to the new permanent location
@@ -1146,11 +1165,74 @@ def save_masks():
         
         print(f"Masks saved to: {dest_dir}")
         return jsonify({
-            "message": f"Masks saved successfully to {tiff_folder}/{date_str}/{folder_name}",
-            "saved_path": f"{tiff_folder}/{date_str}/{folder_name}"
+            "message": f"Masks saved successfully to {tiff_folder}/mask/{date_str}/{folder_name}",
+            "saved_path": f"{tiff_folder}/mask/{date_str}/{folder_name}"
         })
     except Exception as e:
         print(f"!!! SAVE MASKS ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/save-costmap", methods=["POST"])
+def save_costmap():
+    """Save costmaps to a structured date/time/suffix folder."""
+    data = request.json
+    tiff_folder = data.get("tiff_folder")
+    suffix = data.get("suffix", "").strip()
+    costmap_url = data.get("costmap_url")
+
+    if not tiff_folder or not costmap_url:
+        return jsonify({"error": "Missing tiff_folder or costmap_url."}), 400
+
+    # Sanitize folder name
+    if ".." in tiff_folder or "/" in tiff_folder:
+        return jsonify({"error": "Invalid tiff_folder."}), 400
+
+    # Determine source paths
+    # costmap_url is relative like /results/final_costmaps/run_id.png
+    # But usually we want both run_id.png (overlay) and run_id_bw.png (heatmap).
+    # Extract filename from URL
+    try:
+        filename = os.path.basename(costmap_url) # e.g. costmap_123.png
+        run_name = os.path.splitext(filename)[0] # costmap_123
+        
+        # Check if _bw suffix is present, handle accordingly.
+        # Usually overlay is costmap_123.png, bw is costmap_123_bw.png
+        # If passed URL is bw, strip it.
+        if run_name.endswith("_bw"):
+            run_name = run_name[:-3]
+            
+        src_overlay = os.path.join(RESULTS_FOLDER, "final_costmaps", f"{run_name}.png")
+        src_bw = os.path.join(RESULTS_FOLDER, "final_costmaps", f"{run_name}_bw.png")
+        
+        print(f"Saving Costmap: Run Name={run_name}, Src Overlay={src_overlay}, Src BW={src_bw}")
+
+        if not os.path.exists(src_overlay):
+             print(f"Error: Source overlay not found: {src_overlay}")
+             return jsonify({"error": f"Source costmap not found: {src_overlay}"}), 404
+
+        from datetime import datetime
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        time_str = now.strftime("%H-%M-%S")
+        
+        folder_name = f"{time_str}_{suffix}" if suffix else time_str
+        
+        # Structure: results/<tiff>/costmap/<date>/<folder_name>/
+        dest_dir = os.path.join(RESULTS_FOLDER, tiff_folder, "costmap", date_str, folder_name)
+        os.makedirs(dest_dir, exist_ok=True)
+        
+        shutil.copy(src_overlay, os.path.join(dest_dir, "costmap.png"))
+        if os.path.exists(src_bw):
+            shutil.copy(src_bw, os.path.join(dest_dir, "costmap_bw.png"))
+        else:
+            print(f"Warning: Source BW costmap not found: {src_bw}")
+            
+        return jsonify({
+            "message": f"Costmap saved to {tiff_folder}/costmap/{date_str}/{folder_name}/"
+        })
+        
+    except Exception as e:
+        print(f"SAVE COSTMAP ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/load-masks-from-path", methods=["POST"])
@@ -1324,6 +1406,258 @@ def upload_tiff():
 
     return jsonify({"message": "TIFF uploaded successfully", "filename": file.filename, "folder_name": folder_name})
 
+
+
+@app.route("/api/download-plan", methods=["POST"])
+def download_plan():
+    """
+    Downloads a ZIP file containing selectable items:
+    1. RGB Plan (Full Res)
+    2. White Plan (Full Res)
+    3. Metadata.txt
+    4. Costmap Folder (PNGs)
+    5. Costmap TIFF (GeoTIFF)
+    6. Original TIFF
+    7. Masks Folder
+    """
+    data = request.json or {}
+    tiff_folder = data.get("tiff_folder")
+    costmap_url = data.get("costmap_url") # Relative URL
+    path_points = data.get("path") # List of {x, y}
+    start = data.get("start")
+    end = data.get("end")
+    options = data.get("options", {}) # { "include_rgb": true, ... }
+    zip_name = (data.get("zip_name") or "").strip()
+    
+    # Default options (if empty) - Enable ALL by default per user request
+    if not options:
+        options = {
+            "rgb_plan": True,
+            "white_plan": True,
+            "metadata": True,
+            "costmap_files": True,
+            "costmap_tiff": True,
+            "original_tiff": True,
+            "masks": True
+        }
+
+    if not path_points or not tiff_folder:
+         return jsonify({"error": "Missing path or tiff info."}), 400
+	     
+    try:
+        def _normalize_xy(p):
+            if p is None:
+                return None
+            if isinstance(p, dict):
+                if "x" in p and "y" in p:
+                    return (int(p["x"]), int(p["y"]))
+                raise ValueError(f"Invalid point dict: {p}")
+            if isinstance(p, (list, tuple)) and len(p) >= 2:
+                return (int(p[0]), int(p[1]))
+            raise ValueError(f"Invalid point: {p}")
+
+        # Normalize planner payloads: frontend planner uses [x, y] path points,
+        # while older callers may send [{"x":..,"y":..}, ...].
+        path_points_xy = [_normalize_xy(p) for p in path_points]
+        start_xy = _normalize_xy(start) if start else None
+        end_xy = _normalize_xy(end) if end else None
+
+        # Resolve paths
+        if not costmap_url:
+            return jsonify({"error": "Missing costmap_url."}), 400
+
+        if costmap_url.startswith("/results/"):
+            rel_path = costmap_url.replace("/results/", "", 1)
+            costmap_path = os.path.join(RESULTS_FOLDER, rel_path)
+        else:
+            costmap_path = os.path.join(RESULTS_FOLDER, costmap_url)
+            
+        if not os.path.exists(costmap_path):
+             return jsonify({"error": f"Costmap file not found at {costmap_path}"}), 404
+             
+        # Resolve original TIFF path
+        original_tiff_path = os.path.join(RESULTS_FOLDER, tiff_folder, "original.tif")
+        if not os.path.exists(original_tiff_path):
+             # Fallback to upload folder?
+             original_tiff_path = os.path.join(TIFF_FOLDER, tiff_folder) # Assuming tiff_folder is filename
+             if not os.path.exists(original_tiff_path):
+                  # Try searching uploads
+                  pass 
+
+        def _safe_zip_basename(name: str) -> str:
+            # Keep only safe characters; collapse whitespace; prevent path traversal.
+            allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.() ")
+            cleaned = "".join(ch for ch in name if ch in allowed).strip()
+            cleaned = re.sub(r"\s+", " ", cleaned)
+            cleaned = cleaned.replace("..", ".")
+            if not cleaned:
+                return ""
+            if not cleaned.lower().endswith(".zip"):
+                cleaned += ".zip"
+            return cleaned
+
+        # Create temp dir for zip (allow overwriting by name)
+        run_timestamp = int(time.time())
+        default_name = f"plan_{tiff_folder}_{run_timestamp}.zip"
+        zip_basename = _safe_zip_basename(zip_name) or _safe_zip_basename(default_name)
+        downloads_dir = os.path.join(RESULTS_FOLDER, "temp_downloads")
+        os.makedirs(downloads_dir, exist_ok=True)
+        zip_path = os.path.join(downloads_dir, zip_basename)
+        temp_dir = os.path.join(downloads_dir, os.path.splitext(zip_basename)[0])
+
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+        os.makedirs(temp_dir, exist_ok=True)
+        
+        # --- 1. RGB Plan (Full Res) ---
+        if options.get("rgb_plan") and os.path.exists(original_tiff_path):
+            try:
+                # Load Original TIFF (Max resolution)
+                # Note: PIL.Image.MAX_IMAGE_PIXELS might need bumping for huge images
+                Image.MAX_IMAGE_PIXELS = None 
+                with Image.open(original_tiff_path) as img:
+                    img = img.convert("RGB")
+                    draw = ImageDraw.Draw(img)
+                    
+                    # Draw Path (Red, thicker line for high res)
+                    points = path_points_xy
+                    if len(points) > 1:
+                        draw.line(points, fill="red", width=5)
+                        
+                    img.save(os.path.join(temp_dir, "plan_on_rgb.png")) # Save as PNG? Or TIFF? PNG for viewing.
+            except Exception as e:
+                print(f"Error generating RGB plan: {e}")
+                
+        # --- 2. White Plan (Full Res) ---
+        if options.get("white_plan") and os.path.exists(original_tiff_path):
+            try:
+                Image.MAX_IMAGE_PIXELS = None
+                with Image.open(original_tiff_path) as ref_img:
+                    size = ref_img.size
+                
+                white_img = Image.new("RGB", size, "white")
+                draw = ImageDraw.Draw(white_img)
+                
+                points = path_points_xy
+                if len(points) > 1:
+                    draw.line(points, fill="red", width=5)
+                    
+                white_img.save(os.path.join(temp_dir, "plan_on_white.png"))
+            except Exception as e:
+                print(f"Error generating White plan: {e}")
+
+        # --- 3. Metadata ---
+        if options.get("metadata"):
+            with open(os.path.join(temp_dir, "metadata.txt"), "w") as f:
+                f.write(f"Start (raw): {start}\n")
+                f.write(f"End (raw): {end}\n")
+                f.write(f"TIFF: {tiff_folder}\n")
+                f.write(f"Timestamp: {run_timestamp}\n")
+                f.write(f"Points Count: {len(path_points)}\n")
+        
+        # --- 4. Costmap Folder ---
+        if options.get("costmap_files"):
+            costmap_dest = os.path.join(temp_dir, "costmap")
+            os.makedirs(costmap_dest, exist_ok=True)
+
+            base, ext = os.path.splitext(costmap_path)
+            if base.endswith("_bw"):
+                bw_path = costmap_path
+                overlay_path = base[:-3] + ext
+            else:
+                overlay_path = costmap_path
+                bw_path = base + "_bw" + ext
+
+            if os.path.exists(overlay_path):
+                shutil.copy(overlay_path, os.path.join(costmap_dest, "costmap.png"))
+            if os.path.exists(bw_path):
+                shutil.copy(bw_path, os.path.join(costmap_dest, "costmap_bw.png"))
+        
+        # --- 5. Costmap TIFF ---
+        if options.get("costmap_tiff") and os.path.exists(original_tiff_path):
+             # Generate GeoTIFF from costmap (using logic from download_geotiff)
+             # Needs gdal
+             try:
+                 # Load BW costmap for values
+                 base, ext = os.path.splitext(costmap_path)
+                 bw_path = base + "_bw" + ext if not base.endswith("_bw") else costmap_path
+                 if os.path.exists(bw_path):
+                     # Call helper or inline logic? Inline for now to avoid complexity
+                     ds = gdal.Open(original_tiff_path, gdal.GA_ReadOnly)
+                     if ds:
+                         gt = ds.GetGeoTransform()
+                         proj = ds.GetProjection()
+                         
+                         cost_img = cv2.imread(bw_path, cv2.IMREAD_UNCHANGED)
+                         h, w = cost_img.shape[:2]
+                         
+                         out_tiff = os.path.join(temp_dir, "costmap.tif")
+                         driver = gdal.GetDriverByName("GTiff")
+                         out_ds = driver.Create(out_tiff, w, h, 1, gdal.GDT_Byte) # Byte sufficient? Normalized [0,255]
+                         if gt: out_ds.SetGeoTransform(gt)
+                         if proj: out_ds.SetProjection(proj)
+                         out_ds.GetRasterBand(1).WriteArray(cost_img)
+                         out_ds = None
+                         ds = None
+             except Exception as e:
+                 print(f"Error generating Costmap TIFF: {e}")
+
+        # --- 6. Original TIFF ---
+        if options.get("original_tiff") and os.path.exists(original_tiff_path):
+            shutil.copy(original_tiff_path, os.path.join(temp_dir, "original.tif"))
+
+        # --- 7. Masks Folder ---
+        if options.get("masks"):
+            # Where are masks? Assuming temp_latest if just generated, or ...
+            # We don't track specific mask folder used for costmap generation easily unless passed.
+            # But usually it's `temp_latest` if fresh.
+            # Or if generating from saved masks?
+            # User wants "masks folder with the masks in it".
+            # I'll try `results/<tiff>/mask/temp_latest/refined`.
+            masks_src = os.path.join(RESULTS_FOLDER, tiff_folder, "mask", "temp_latest", "refined")
+            if os.path.exists(masks_src):
+                shutil.copytree(masks_src, os.path.join(temp_dir, "masks"))
+        
+        # Zip
+        shutil.make_archive(zip_path.replace('.zip', ''), 'zip', temp_dir)
+        
+        # Cleanup
+        # shutil.rmtree(temp_dir) 
+        
+        return jsonify({"download_url": f"/results/temp_downloads/{zip_basename}", "zip_filename": zip_basename})
+        
+    except Exception as e:
+        print(f"DOWNLOAD PLAN ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/clear-temp-downloads", methods=["POST"])
+def clear_temp_downloads():
+    """Delete files/folders under results/temp_downloads/ (keeps the folder)."""
+    try:
+        downloads_dir = os.path.join(RESULTS_FOLDER, "temp_downloads")
+        if not os.path.exists(downloads_dir):
+            return jsonify({"deleted": 0})
+
+        deleted = 0
+        for name in os.listdir(downloads_dir):
+            path = os.path.join(downloads_dir, name)
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                    deleted += 1
+                elif os.path.isfile(path):
+                    os.remove(path)
+                    deleted += 1
+            except Exception as e:
+                print(f"Failed to delete {path}: {e}")
+        return jsonify({"deleted": deleted})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=5003, host='0.0.0.0')

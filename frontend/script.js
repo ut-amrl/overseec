@@ -8,6 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
         addClassBtn = document.getElementById('add-class-btn'),
         runPipelineBtn = document.getElementById('run-pipeline-btn'),
         generateCostmapBtn = document.getElementById('generate-costmap-btn'),
+        // [NEW]
+        downloadPlanBtn = document.getElementById('download-plan-btn'),
+        costmapDeviceSelect = document.getElementById('costmap-device'),
         saveMasksBtn = document.getElementById('save-masks-btn'),
         saveCostmapImgBtn = document.getElementById('save-costmap-img-btn'),
         browseCostmapsBtn = document.getElementById('browse-costmaps-btn'),
@@ -20,7 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsArea = document.getElementById('results-area'),
         resultsMasksContainer = document.getElementById('results-masks-container'),
         costmapDisplayArea = document.getElementById('costmap-display-area'),
-        costmapImageContainer = document.getElementById('costmap-image-container'),
+        costmapOverlayBaseImg = document.getElementById('costmap-overlay-base'),
+        costmapOverlayImg = document.getElementById('costmap-overlay-img'),
+        costmapOverlaySlider = document.getElementById('costmap-overlay-slider'),
         resultsPlaceholder = document.getElementById('results-placeholder'),
         loader = document.getElementById('loader'),
         cancelPipelineBtn = document.getElementById('cancel-pipeline-btn');
@@ -107,12 +112,17 @@ document.addEventListener('DOMContentLoaded', () => {
         closePlannerBtn = document.getElementById('close-planner-btn'),
         plannerImgBg = document.getElementById('planner-img-bg'),
         plannerCanvas = document.getElementById('planner-canvas'),
+        plannerImgOverlay = document.getElementById('planner-img-overlay'),
+        plannerOverlaySlider = document.getElementById('planner-overlay-slider'),
         selectStartBtn = document.getElementById('select-start-btn'),
         selectEndBtn = document.getElementById('select-end-btn'),
         planPathBtn = document.getElementById('plan-path-btn'),
         clearPlanBtn = document.getElementById('clear-plan-btn'),
         plannerStatus = document.getElementById('planner-status'),
         plannerCoords = document.getElementById('planner-coords');
+
+    const downloadZipNameInput = document.getElementById('download-zip-name');
+    const clearTempDownloadsBtn = document.getElementById('clear-temp-downloads-btn');
 
     const API_BASE_URL = '';
     let currentClasses = [], worldMap, drawnItems, capturedBounds, progressInterval, gpuPollInterval, consolePollInterval;
@@ -121,6 +131,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let pipelinePollInterval = null;
     let currentTaskId = null;
     let currentCostmapUrl = null;
+    let currentCostmapOverlayUrl = null;
+    let currentCostmapOverlayFallbackUrl = null;
     let plannerState = {};
     let plannerResizeObserver = null;
     let selectedRunId = null;
@@ -153,6 +165,90 @@ document.addEventListener('DOMContentLoaded', () => {
         const g = Math.floor(Math.random() * 256);
         const b = Math.floor(Math.random() * 256);
         return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function getCurrentTiffName() {
+        return currentTiffFolder || selectedTiffName || '';
+    }
+
+    function getPreviewUrlForTiff(tiffName) {
+        if (!tiffName) return '';
+        return `${API_BASE_URL}/results/${tiffName}/preview.png`;
+    }
+
+    function deriveOverlayAndBwUrls(url) {
+        // url is a /results/... path (usually .png)
+        if (!url) return { overlayUrl: null, overlayFallbackUrl: null, bwUrl: null };
+        const overlayFallbackUrl = url;
+        let bwUrl = url;
+        if (url.endsWith('costmap.png')) {
+            bwUrl = url.replace(/costmap\.png$/, 'costmap_bw.png');
+        } else if (url.endsWith('costmap_bw.png')) {
+            bwUrl = url;
+        } else if (url.endsWith('_bw.png')) {
+            bwUrl = url;
+        } else if (url.endsWith('.png')) {
+            // Assume it's an overlay; try sibling *_bw.png for planning
+            bwUrl = url.replace(/\.png$/, '_bw.png');
+        }
+        // Prefer BW image for overlays by default; fall back to whatever was clicked.
+        return { overlayUrl: bwUrl, overlayFallbackUrl, bwUrl };
+    }
+
+    function setImgOpacityFromSlider(imgEl, sliderEl) {
+        if (!imgEl || !sliderEl) return;
+        imgEl.style.opacity = (sliderEl.value / 100).toString();
+    }
+
+    function updateCostmapOverlayUI() {
+        if (!costmapOverlayBaseImg || !costmapOverlayImg) return;
+
+        const tiffName = getCurrentTiffName();
+        const previewUrl = getPreviewUrlForTiff(tiffName);
+        const rgbPreviewImg = tiffPreviewContainer.querySelector('img');
+        costmapOverlayBaseImg.src = (rgbPreviewImg ? rgbPreviewImg.src : '') || previewUrl;
+
+        if (currentCostmapOverlayUrl) {
+            const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
+            const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+            costmapOverlayImg.onerror = () => {
+                if (fallback && costmapOverlayImg.src !== fallback) {
+                    costmapOverlayImg.onerror = null;
+                    costmapOverlayImg.src = fallback;
+                }
+            };
+            costmapOverlayImg.src = primary;
+            costmapOverlayImg.classList.remove('hidden');
+        } else {
+            costmapOverlayImg.src = '';
+            costmapOverlayImg.classList.add('hidden');
+        }
+
+        if (costmapOverlaySlider) {
+            setImgOpacityFromSlider(costmapOverlayImg, costmapOverlaySlider);
+        }
+
+        // If planner is open, also update its overlay image.
+        if (plannerModal && !plannerModal.classList.contains('hidden') && plannerImgOverlay) {
+            if (currentCostmapOverlayUrl) {
+                const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
+                const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+                plannerImgOverlay.onerror = () => {
+                    if (fallback && plannerImgOverlay.src !== fallback) {
+                        plannerImgOverlay.onerror = null;
+                        plannerImgOverlay.src = fallback;
+                    }
+                };
+                plannerImgOverlay.src = primary;
+                plannerImgOverlay.classList.remove('hidden');
+            } else {
+                plannerImgOverlay.src = '';
+                plannerImgOverlay.classList.add('hidden');
+            }
+            if (plannerOverlaySlider) {
+                setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+            }
+        }
     }
 
     // --- Core Functions ---
@@ -241,7 +337,8 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsArea.classList.remove('hidden');
         resultsPlaceholder.classList.add('hidden');
         costmapDisplayArea.classList.add('hidden');
-        costmapImageContainer.innerHTML = '';
+        if (costmapOverlayBaseImg) costmapOverlayBaseImg.src = '';
+        if (costmapOverlayImg) costmapOverlayImg.src = '';
         resultsMasksContainer.innerHTML = '';
 
         // Enable Save Masks button if we have a tiff_folder
@@ -498,6 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     refined_masks: masks_to_use,
                     tiff_folder: currentTiffFolder || selectedTiffName || '',
+                    device: document.getElementById('costmap-device').value,
                     t_dict: {
                         t_a: parseFloat(paramInputs.refiner_areal_threshold.value),
                         t_l: parseFloat(paramInputs.refiner_linear_threshold.value)
@@ -509,8 +607,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error(data.error || "Failed to generate costmap.");
 
             currentCostmapUrl = data.costmap_url;
-            costmapImageContainer.innerHTML = `<img src="${API_BASE_URL}${data.costmap_url}" alt="Final Costmap" class="max-w-full max-h-[400px] rounded-lg shadow-md">`;
+            currentCostmapOverlayUrl = data.costmap_url; // overlay uses BW by default
+            currentCostmapOverlayFallbackUrl = data.colored_url || null;
             costmapDisplayArea.classList.remove('hidden');
+            updateCostmapOverlayUI();
             saveCostmapImgBtn.disabled = false;
 
             // Load saved goals for this TIFF
@@ -655,7 +755,7 @@ document.addEventListener('DOMContentLoaded', () => {
         editCostmapBtn.disabled = true;
     }
 
-    async function handleSaveCostmap() {
+    async function handleSaveCostmapCode() {
         // Use our new, more reliable function to get the code
         const newCode = getTextFromEditable(generatedCostmapCode);
 
@@ -1008,6 +1108,10 @@ document.addEventListener('DOMContentLoaded', () => {
             path: null,
             originalDimensions: null // Also clear original dimensions
         };
+        if (downloadPlanBtn) downloadPlanBtn.disabled = true;
+        const optsBtn = document.getElementById('download-plan-options-btn');
+        if (optsBtn) optsBtn.disabled = true;
+        setDownloadDropdownOpen(false);
         lastKnownCoords = null;
         plannerCoords.textContent = 'Mouse: (-, -)';
         redrawAllPlannerElements();
@@ -1042,7 +1146,37 @@ document.addEventListener('DOMContentLoaded', () => {
         plannerModal.classList.remove('hidden');
         plannerModal.classList.add('flex');
 
-        plannerImgBg.src = rgbPreviewImg.src;
+        const tiffName = currentTiffFolder || selectedTiffName;
+        plannerImgBg.onerror = () => {
+            plannerImgBg.onerror = null;
+            plannerImgBg.src = rgbPreviewImg.src;
+        };
+        plannerImgBg.src = tiffName ? `${API_BASE_URL}/results/${tiffName}/preview.png` : rgbPreviewImg.src;
+
+        if (plannerImgOverlay) {
+            if (currentCostmapOverlayUrl) {
+                const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
+                const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+                plannerImgOverlay.onerror = () => {
+                    if (fallback && plannerImgOverlay.src !== fallback) {
+                        plannerImgOverlay.onerror = null;
+                        plannerImgOverlay.src = fallback;
+                    }
+                };
+                plannerImgOverlay.src = primary;
+                plannerImgOverlay.classList.remove('hidden');
+            } else {
+                plannerImgOverlay.src = '';
+                plannerImgOverlay.classList.add('hidden');
+            }
+        }
+        if (plannerOverlaySlider) {
+            setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+        }
+        if (downloadZipNameInput && tiffName && !downloadZipNameInput.value.trim()) {
+            downloadZipNameInput.value = `${tiffName}_plan.zip`;
+            localStorage.setItem('downloadZipName', downloadZipNameInput.value);
+        }
 
         if (plannerImgBg.complete) {
             resetPlannerState();
@@ -1059,7 +1193,6 @@ document.addEventListener('DOMContentLoaded', () => {
         plannerResizeObserver.observe(plannerImgBg.parentElement);
 
         // Load Saved Goals for current TIFF
-        const tiffName = currentTiffFolder || selectedTiffName;
         if (tiffName) {
             loadSavedGoals(tiffName);
         }
@@ -1068,6 +1201,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function hidePlannerModal() {
         plannerModal.classList.add('hidden');
         plannerModal.classList.remove('flex');
+        setDownloadDropdownOpen(false);
         if (plannerResizeObserver) {
             plannerResizeObserver.disconnect();
             plannerResizeObserver = null;
@@ -1128,6 +1262,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Goals loaded from disk may not set displayDimensions (it’s usually set on click).
+        if (!plannerState.displayDimensions && plannerCanvas && plannerCanvas.width && plannerCanvas.height) {
+            plannerState.displayDimensions = { width: plannerCanvas.width, height: plannerCanvas.height };
+        }
+
         planPathBtn.disabled = true;
         plannerStatus.textContent = 'Planning...';
 
@@ -1148,6 +1287,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
             plannerState.path = data.path;
             plannerState.originalDimensions = data.original_dimensions; // [MODIFIED] Store original dimensions
+
+            // Enable Download button
+            if (downloadPlanBtn) downloadPlanBtn.disabled = false;
+            const optsBtn = document.getElementById('download-plan-options-btn');
+            if (optsBtn) optsBtn.disabled = false;
             redrawAllPlannerElements();
             plannerStatus.textContent = `Path found with length: ${data.path.length}`;
 
@@ -1155,6 +1299,133 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Planning Error: ${error.message}`);
         } finally {
             planPathBtn.disabled = false;
+            plannerStatus.textContent = plannerState.path ? `Path found: ${plannerState.path.length} steps` : 'Planning failed.';
+        }
+    }
+
+    function getDownloadOptionsFromUI() {
+        return {
+            rgb_plan: document.getElementById('dl-rgb')?.checked ?? true,
+            white_plan: document.getElementById('dl-white')?.checked ?? true,
+            metadata: document.getElementById('dl-meta')?.checked ?? true,
+            costmap_files: document.getElementById('dl-costmap-files')?.checked ?? true,
+            costmap_tiff: document.getElementById('dl-costmap-tiff')?.checked ?? true,
+            original_tiff: document.getElementById('dl-orig-tiff')?.checked ?? true,
+            masks: document.getElementById('dl-masks')?.checked ?? true
+        };
+    }
+
+    function loadDownloadOptionsIntoUI() {
+        const savedOptions = JSON.parse(localStorage.getItem('downloadOptions') || '{}');
+        const hasSaved = savedOptions && Object.keys(savedOptions).length > 0;
+        const merged = {
+            rgb_plan: true,
+            white_plan: true,
+            metadata: true,
+            costmap_files: true,
+            costmap_tiff: true,
+            original_tiff: true,
+            masks: true,
+            ...(hasSaved ? savedOptions : {})
+        };
+
+        const set = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = val;
+        };
+        set('dl-rgb', merged.rgb_plan !== false);
+        set('dl-white', merged.white_plan !== false);
+        set('dl-meta', merged.metadata !== false);
+        set('dl-costmap-files', merged.costmap_files !== false);
+        set('dl-costmap-tiff', merged.costmap_tiff !== false);
+        set('dl-orig-tiff', merged.original_tiff !== false);
+        set('dl-masks', merged.masks !== false);
+    }
+
+    function saveDownloadOptionsFromUI() {
+        localStorage.setItem('downloadOptions', JSON.stringify(getDownloadOptionsFromUI()));
+    }
+
+    function setDownloadDropdownOpen(open) {
+        const dropdown = document.getElementById('download-plan-dropdown');
+        const btn = document.getElementById('download-plan-options-btn');
+        if (!dropdown || !btn) return;
+        dropdown.classList.toggle('hidden', !open);
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    async function handleClearTempDownloads() {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/clear-temp-downloads`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to clear temp downloads.');
+            alert(`Cleared temp downloads (${data.deleted || 0} items).`);
+        } catch (e) {
+            alert(`Clear temp downloads error: ${e.message}`);
+        } finally {
+            setDownloadDropdownOpen(false);
+        }
+    }
+
+    async function handleDownloadPlan() {
+        if (!plannerState.path || plannerState.path.length === 0) {
+            alert("No plan available to download. Please generate a path first.");
+            return;
+        }
+        await executeDownloadPlan();
+    }
+
+    async function executeDownloadPlan() {
+        const options = getDownloadOptionsFromUI();
+        localStorage.setItem('downloadOptions', JSON.stringify(options));
+        const zipName = (downloadZipNameInput && downloadZipNameInput.value) ? downloadZipNameInput.value.trim() : '';
+
+        const originalText = downloadPlanBtn ? downloadPlanBtn.textContent : '';
+        if (downloadPlanBtn) {
+            downloadPlanBtn.disabled = true;
+            downloadPlanBtn.textContent = 'Generating...';
+        }
+        const optsBtn = document.getElementById('download-plan-options-btn');
+        if (optsBtn) optsBtn.disabled = true;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/download-plan`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tiff_folder: currentTiffFolder || selectedTiffName || '',
+                    costmap_url: currentCostmapUrl,
+                    path: plannerState.path,
+                    start: plannerState.startPoint,
+                    end: plannerState.endPoint,
+                    options: options,
+                    zip_name: zipName
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.download_url) {
+                    const link = document.createElement('a');
+                    link.href = `${API_BASE_URL}${data.download_url}`;
+                    link.download = data.zip_filename || (zipName || '');
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                } else {
+                    alert("Download URL missing in response.");
+                }
+            } else {
+                const err = await response.json();
+                alert(`Download Error: ${err.error}`);
+            }
+        } catch (error) {
+            alert(`Download Error: ${error.message}`);
+        } finally {
+            if (downloadPlanBtn) {
+                downloadPlanBtn.disabled = false;
+                downloadPlanBtn.textContent = originalText || 'Download Plan';
+            }
+            if (optsBtn) optsBtn.disabled = false;
         }
     }
 
@@ -1199,15 +1470,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- File Browser Functions ---
 
-    function openBrowser(mode) {
+    function openBrowser(mode, startPath = '') {
         browserMode = mode;
-        browserCurrentPath = '';
+        browserCurrentPath = startPath;
         browserSelectedPath = null;
         loadSelectedMasksBtn.disabled = true;
 
         // Configure modal for mode
         if (mode === 'tiff') {
             browserModalTitle.textContent = 'Browse TIFFs';
+            browserSearchArea.classList.add('hidden');
+            loadSelectedMasksBtn.classList.add('hidden');
+        } else if (mode === 'all') {
+            browserModalTitle.textContent = 'Browse Costmaps';
             browserSearchArea.classList.add('hidden');
             loadSelectedMasksBtn.classList.add('hidden');
         } else {
@@ -1220,7 +1495,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         serverMasksModal.classList.remove('hidden');
         serverMasksModal.classList.add('flex');
-        browseResults('');
+        browseResults(startPath);
     }
 
     async function showServerMasksModal() {
@@ -1389,6 +1664,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 badge = '<span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">temp</span>';
             } else if (item.name.match(/^\d{4}-\d{2}-\d{2}$/)) {
                 icon = '📅';
+            } else if (item.name === 'mask') {
+                icon = '🎭';
+            } else if (item.name === 'costmap') {
+                icon = '🗺️';
             } else if (item.name === 'semantic' || item.name === 'refined') {
                 icon = '🖼️';
             }
@@ -1497,15 +1776,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     // browseResults gets items from RESULTS_FOLDER.
                     // itemPath is relative to RESULTS_FOLDER.
 
-                    currentCostmapUrl = `/results/${itemPath}`;
-                    costmapImageContainer.innerHTML = `<img src="${API_BASE_URL}${currentCostmapUrl}" alt="Loaded Costmap" class="max-w-full max-h-[400px] rounded-lg shadow-md">`;
+                    const clickedCostmapUrl = `/results/${itemPath}`;
                     costmapDisplayArea.classList.remove('hidden');
                     saveCostmapImgBtn.disabled = true; // Loaded costmap, maybe not re-saveable directly?
+                    const urls = deriveOverlayAndBwUrls(clickedCostmapUrl);
+                    currentCostmapUrl = urls.bwUrl;
+                    currentCostmapOverlayUrl = urls.overlayUrl;
+                    currentCostmapOverlayFallbackUrl = urls.overlayFallbackUrl;
+                    updateCostmapOverlayUI();
 
                     // Also load goals for the TIFF
-                    // itemPath: tiff_folder/costmaps/file.png
+                    // itemPath: tiff_folder/costmap/.../file.png
                     const parts = itemPath.split('/');
                     const tiffName = parts[0];
+                    if (tiffName && tiffName !== selectedTiffName) {
+                        setSelectedTiff(tiffName);
+                    }
                     loadSavedGoals(tiffName);
 
                     hideServerMasksModal();
@@ -1549,26 +1835,42 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleBrowseCostmaps() {
-        // Browse the costmaps folder for the selected TIFF
+        // Browse costmaps for the selected TIFF (or all results if none selected)
         const tiffName = selectedTiffName;
-        if (tiffName) {
-            browserMode = 'all';
-            showServerMasksModal();
-            browseResults(`${tiffName}/costmaps`);
-        } else {
-            // Just open the browser at root
-            openBrowser('all');
-        }
+        openBrowser('all', tiffName ? `${tiffName}/costmap` : '');
     }
 
-    function handleSaveCostmap() {
-        // Costmaps are already auto-saved during generation in generate-costmap endpoint
-        // Just notify the user
-        const tiffName = currentTiffFolder || selectedTiffName;
-        if (tiffName) {
-            alert(`Costmaps are saved in results/${tiffName}/costmaps/`);
-        } else {
-            alert('Costmaps are saved in results/final_costmaps/');
+    async function handleSaveCostmap() {
+        if (!currentCostmapUrl) {
+            alert("No costmap generated yet.");
+            return;
+        }
+
+        const suffix = prompt('Enter a suffix for this costmap run (optional):');
+        if (suffix === null) return;
+
+        saveCostmapImgBtn.disabled = true;
+        saveCostmapImgBtn.textContent = 'Saving...';
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/save-costmap`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tiff_folder: currentTiffFolder || selectedTiffName,
+                    costmap_url: currentCostmapUrl,
+                    suffix: suffix.trim()
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Failed to save costmap.");
+
+            alert(`✅ ${data.message}`);
+        } catch (e) {
+            alert(`Error: ${e.message}`);
+        } finally {
+            saveCostmapImgBtn.disabled = false;
+            saveCostmapImgBtn.textContent = '💾 Save';
         }
     }
 
@@ -1661,7 +1963,7 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Save Error: ${error.message}`);
         } finally {
             saveMasksBtn.disabled = false;
-            saveMasksBtn.textContent = '💾 Save Masks';
+            saveMasksBtn.textContent = '💾 Save';
         }
     }
 
@@ -1817,7 +2119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     showCostmapBtn.addEventListener('click', showCostmapModal);
     closeCostmapBtn.addEventListener('click', hideCostmapModal);
     editCostmapBtn.addEventListener('click', handleEditCostmap);
-    saveCostmapBtn.addEventListener('click', handleSaveCostmap);
+    saveCostmapBtn.addEventListener('click', handleSaveCostmapCode);
     restoreCostmapBtn.addEventListener('click', handleRestoreCostmap);
     showWorldMapBtn.addEventListener('click', showWorldMap);
     closeWorldMapBtn.addEventListener('click', hideWorldMap);
@@ -1867,7 +2169,73 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePlannerUI();
     });
     planPathBtn.addEventListener('click', handlePlanPath);
+    if (downloadPlanBtn) {
+        downloadPlanBtn.addEventListener('click', handleDownloadPlan);
+
+        // Download dropdown (options)
+        loadDownloadOptionsIntoUI();
+        ['dl-rgb', 'dl-white', 'dl-meta', 'dl-costmap-files', 'dl-costmap-tiff', 'dl-orig-tiff', 'dl-masks'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', saveDownloadOptionsFromUI);
+        });
+
+        const optsBtn = document.getElementById('download-plan-options-btn');
+        if (optsBtn) {
+            optsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dropdown = document.getElementById('download-plan-dropdown');
+                const isOpen = dropdown && !dropdown.classList.contains('hidden');
+                setDownloadDropdownOpen(!isOpen);
+            });
+        }
+
+        document.addEventListener('click', (e) => {
+            const wrapper = document.getElementById('download-plan-wrapper');
+            if (!wrapper) return;
+            if (!wrapper.contains(e.target)) setDownloadDropdownOpen(false);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') setDownloadDropdownOpen(false);
+        });
+    }
     clearPlanBtn.addEventListener('click', resetPlannerState);
+
+    if (downloadZipNameInput) {
+        const savedZipName = localStorage.getItem('downloadZipName') || '';
+        if (savedZipName) downloadZipNameInput.value = savedZipName;
+        downloadZipNameInput.addEventListener('input', () => {
+            localStorage.setItem('downloadZipName', downloadZipNameInput.value);
+        });
+    }
+
+    if (clearTempDownloadsBtn) {
+        clearTempDownloadsBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleClearTempDownloads();
+        });
+    }
+
+    if (costmapOverlaySlider) {
+        const saved = localStorage.getItem('costmapOverlayOpacity');
+        if (saved) costmapOverlaySlider.value = saved;
+        costmapOverlaySlider.addEventListener('input', () => {
+            localStorage.setItem('costmapOverlayOpacity', costmapOverlaySlider.value);
+            setImgOpacityFromSlider(costmapOverlayImg, costmapOverlaySlider);
+        });
+        setImgOpacityFromSlider(costmapOverlayImg, costmapOverlaySlider);
+    }
+
+    if (plannerOverlaySlider) {
+        const saved = localStorage.getItem('plannerOverlayOpacity');
+        if (saved) plannerOverlaySlider.value = saved;
+        plannerOverlaySlider.addEventListener('input', () => {
+            localStorage.setItem('plannerOverlayOpacity', plannerOverlaySlider.value);
+            setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+        });
+        setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+    }
 
     closeServerMasksBtn.addEventListener('click', hideServerMasksModal);
     browserUpBtn.addEventListener('click', handleBrowserUp);
@@ -1965,6 +2333,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (goal.start && goal.end) {
                             plannerState.startPoint = goal.start;
                             plannerState.endPoint = goal.end;
+                            plannerState.displayDimensions = { width: plannerCanvas.width, height: plannerCanvas.height };
+                            plannerState.path = null;
+                            plannerState.originalDimensions = null;
+                            if (downloadPlanBtn) downloadPlanBtn.disabled = true;
+                            const optsBtn = document.getElementById('download-plan-options-btn');
+                            if (optsBtn) optsBtn.disabled = true;
+                            setDownloadDropdownOpen(false);
                             // Reset selection modes and update UI
                             plannerState.selectingStart = false;
                             plannerState.selectingEnd = false;

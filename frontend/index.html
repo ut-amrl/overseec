@@ -358,9 +358,65 @@
                         class="bg-green-500 text-white font-bold py-2 px-3 rounded-lg hover:bg-green-600 transition ring-2 ring-offset-2 ring-green-500">Start</button>
                     <button id="select-end-btn"
                         class="bg-red-500 text-white font-bold py-2 px-3 rounded-lg hover:bg-red-600 transition">End</button>
-                    <button id="plan-path-btn"
-                        class="bg-blue-600 text-white font-bold py-2 px-3 rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400"
-                        disabled>Plan</button>
+	                    <button id="plan-path-btn"
+	                        class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400"
+	                        disabled>Plan Path</button>
+	                    <div id="download-plan-wrapper" class="relative inline-flex">
+	                        <button id="download-plan-btn"
+	                            class="bg-green-600 text-white font-bold py-2 px-4 rounded-l-lg hover:bg-green-700 transition disabled:bg-gray-400"
+	                            disabled>Download Plan</button>
+                        <button id="download-plan-options-btn"
+                            class="bg-green-600 text-white font-bold py-2 px-3 rounded-r-lg hover:bg-green-700 transition disabled:bg-gray-400 border-l border-green-700/30"
+                            disabled
+                            aria-haspopup="true"
+                            aria-expanded="false"
+                            title="Download options">▾</button>
+	                        <div id="download-plan-dropdown"
+	                            class="hidden absolute right-0 top-full mt-2 w-72 bg-white border border-gray-200 rounded-lg shadow-2xl z-[120] p-4">
+	                            <div class="text-sm font-semibold text-gray-800 mb-2">Download options</div>
+                                <label class="block text-xs font-semibold text-gray-600">ZIP name</label>
+                                <input id="download-zip-name" type="text"
+                                    class="w-full mt-1 mb-3 px-2 py-1.5 border border-gray-300 rounded-md text-sm"
+                                    placeholder="e.g. pickle_north_plan.zip">
+	                            <div class="space-y-2 text-sm">
+	                                <label class="flex items-center space-x-2">
+	                                    <input type="checkbox" id="dl-rgb" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+	                                    <span>RGB Plan (Full Res)</span>
+                                </label>
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" id="dl-white" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+                                    <span>White Plan (Full Res)</span>
+                                </label>
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" id="dl-meta" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+                                    <span>Metadata</span>
+                                </label>
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" id="dl-costmap-files" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+                                    <span>Costmap Files (PNG)</span>
+                                </label>
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" id="dl-costmap-tiff" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+                                    <span>Costmap GeoTIFF</span>
+                                </label>
+                                <label class="flex items-center space-x-2">
+                                    <input type="checkbox" id="dl-orig-tiff" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+                                    <span>Original TIFF</span>
+                                </label>
+	                                <label class="flex items-center space-x-2">
+	                                    <input type="checkbox" id="dl-masks" class="form-checkbox h-4 w-4 text-indigo-600 rounded">
+	                                    <span>Masks Folder</span>
+	                                </label>
+	                            </div>
+	                            <div class="mt-3 flex items-center justify-between gap-2">
+                                    <button id="clear-temp-downloads-btn"
+                                        class="text-xs bg-gray-200 text-gray-800 px-2 py-1 rounded-md hover:bg-gray-300 font-semibold transition">
+                                        Clear temp downloads
+                                    </button>
+                                    <div class="text-xs text-gray-500 text-right">Click “Download Plan” to download.</div>
+                                </div>
+	                        </div>
+	                    </div>
                     <button id="clear-plan-btn"
                         class="bg-gray-500 text-white font-bold py-2 px-3 rounded-lg hover:bg-gray-600 transition">Clear</button>
                     <button id="close-planner-btn"
@@ -374,22 +430,28 @@
                     <div class="flex justify-between items-center mb-2">
                         <h3 class="font-bold text-lg text-gray-800">Saved Goals</h3>
                     </div>
-                    <div id="saved-goals-list"
-                        class="flex-1 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50 mb-3">
-                        <span class="text-sm text-gray-400 italic p-2">No goals saved.</span>
-                    </div>
-                    <button id="save-current-goal-btn"
-                        class="w-full bg-blue-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition shadow-sm flex items-center justify-center gap-2">
-                        <span>💾</span> Save Current
-                    </button>
-                </div>
+		                    <div id="saved-goals-list"
+		                        class="flex-1 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50 mb-3">
+		                        <span class="text-sm text-gray-400 italic p-2">No goals saved.</span>
+		                    </div>
+		                    <button id="save-current-goal-btn"
+		                        class="w-full bg-blue-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition shadow-sm flex items-center justify-center gap-2">
+		                        <span>💾</span> Save Current
+		                    </button>
+	                </div>
 
-                <!-- Canvas Container -->
-                <div id="planner-container"
-                    class="flex-1 relative bg-gray-200 rounded-lg overflow-hidden border flex justify-center items-center shadow-inner">
-                    <img id="planner-img-bg" src="" class="max-w-full max-h-full object-contain">
-                    <canvas id="planner-canvas"></canvas>
-                </div>
+	                <!-- Canvas Container -->
+		                <div id="planner-container"
+		                    class="flex-1 bg-gray-200 rounded-lg overflow-hidden border flex items-center gap-4 p-3 shadow-inner">
+	                        <div id="planner-image-wrap" class="relative flex-1 flex justify-center items-center">
+		                        <img id="planner-img-bg" src="" class="max-w-full max-h-full object-contain">
+	                            <img id="planner-img-overlay" src=""
+	                                class="absolute inset-0 w-full h-full object-contain opacity-60 pointer-events-none">
+		                        <canvas id="planner-canvas"></canvas>
+	                        </div>
+	                        <input id="planner-overlay-slider" type="range" orient="vertical" min="0" max="100" value="60"
+	                            class="h-48">
+		                </div>
             </div>
         </div>
     </div>
@@ -555,11 +617,17 @@
                                     Plan Over Map
                                 </button>
                             </div>
-                        </div>
-                        <div id="costmap-image-container"
-                            class="bg-gray-100 rounded-lg flex justify-center items-center">
-                        </div>
-                    </div>
+	                        </div>
+	                        <div class="flex flex-row items-center gap-4">
+	                            <div class="relative flex-grow bg-gray-200 rounded-lg overflow-hidden border">
+	                                <img id="costmap-overlay-base" src="" alt="RGB base" class="w-full h-auto block">
+	                                <img id="costmap-overlay-img" src="" alt="Costmap overlay"
+	                                    class="absolute inset-0 w-full h-full opacity-60">
+	                            </div>
+	                            <input id="costmap-overlay-slider" type="range" orient="vertical" min="0" max="100" value="60"
+	                                class="h-48">
+	                        </div>
+	                    </div>
                     <div id="results-area" class="flex-grow hidden">
                         <h2 class="text-2xl font-bold mb-4 border-b pb-3">Generated Masks</h2>
                         <div id="results-masks-container" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -592,25 +660,24 @@
                             <span id="selected-tiff-name" class="flex-1 font-medium text-gray-500 italic">No TIFF
                                 selected</span>
                         </div>
-                        <div class="flex items-center gap-2 flex-wrap">
+                        <div class="grid grid-cols-2 gap-2">
                             <label for="tiff-upload"
-                                class="bg-indigo-600 text-white px-3 py-2 rounded-lg cursor-pointer hover:bg-indigo-700 transition text-sm">
-                                ⬆ Upload TIFF
+                                class="h-10 w-full inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-3 rounded-lg cursor-pointer hover:bg-indigo-700 transition text-sm font-semibold">
+                                <span>⬆</span><span>Upload</span>
                             </label>
                             <input id="tiff-upload" type="file" accept=".tif,.tiff" class="hidden" />
                             <button id="browse-tiffs-btn"
-                                class="bg-indigo-600 text-white px-3 py-2 rounded-lg hover:bg-indigo-700 transition text-sm">
-                                📂 Browse TIFFs
+                                class="h-10 w-full inline-flex items-center justify-center gap-2 bg-indigo-600 text-white px-3 rounded-lg hover:bg-indigo-700 transition text-sm font-semibold">
+                                <span>📂</span><span>Browse</span>
                             </button>
                         </div>
                         <label class="block text-lg font-semibold mb-2 mt-4">Masks</label>
-                        <div class="flex items-center gap-2 flex-wrap">
+                        <div class="grid grid-cols-2 gap-2">
                             <button id="save-masks-btn"
-                                class="bg-indigo-600 text-white font-bold px-3 py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400 text-sm"
-                                disabled>💾 Save Masks</button>
+                                class="h-10 w-full inline-flex items-center justify-center gap-2 bg-indigo-600 text-white font-semibold px-3 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400 text-sm"
+                                disabled><span>💾</span><span>Save</span></button>
                             <button id="load-server-masks-btn"
-                                class="bg-indigo-600 text-white font-bold px-3 py-2 rounded-lg hover:bg-indigo-700 transition text-sm">📂
-                                Browse Masks</button>
+                                class="h-10 w-full inline-flex items-center justify-center gap-2 bg-indigo-600 text-white font-semibold px-3 rounded-lg hover:bg-indigo-700 transition text-sm"><span>📂</span><span>Browse</span></button>
                         </div>
                     </div>
                     <div class="space-y-3">
@@ -621,19 +688,41 @@
                                 disabled>OV Mask Generation</button>
                         </div>
 
-                        <div>
+                        <h3 class="text-lg font-semibold my-2">Costmap Tools</h3>
+                        <div class="grid grid-cols-2 gap-2">
+                            <!-- 1: Device Selector -->
+                            <select id="costmap-device"
+                                class="bg-gray-100 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
+                                <option value="cpu" selected>CPU</option>
+                                <option value="cuda:0">CUDA:0</option>
+                                <option value="cuda:1">CUDA:1</option>
+                                <option value="cuda:2">CUDA:2</option>
+                                <option value="cuda:3">CUDA:3</option>
+                                <option value="cuda:4">CUDA:4</option>
+                                <option value="cuda:5">CUDA:5</option>
+                                <option value="cuda:6">CUDA:6</option>
+                                <option value="cuda:7">CUDA:7</option>
+                            </select>
+
+                            <!-- 2: Generate Button -->
                             <button id="generate-costmap-btn"
-                                class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400"
-                                disabled>Generate Costmap</button>
-                        </div>
-                        <label class="block text-lg font-semibold mb-2 mt-2">Costmaps</label>
-                        <div class="flex items-center gap-2 flex-wrap">
+                                class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400 text-sm"
+                                disabled>
+                                ⚙ Generate
+                            </button>
+
+                            <!-- 3: Save Button -->
                             <button id="save-costmap-img-btn"
-                                class="bg-indigo-600 text-white font-bold px-3 py-2 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400 text-sm"
-                                disabled>💾 Save Costmap</button>
+                                class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400 text-sm"
+                                disabled>
+                                💾 Save
+                            </button>
+
+                            <!-- 4: Browse Button -->
                             <button id="browse-costmaps-btn"
-                                class="bg-indigo-600 text-white font-bold px-3 py-2 rounded-lg hover:bg-indigo-700 transition text-sm">📂
-                                Browse Costmaps</button>
+                                class="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700 transition text-sm">
+                                📂 Browse
+                            </button>
                         </div>
                     </div>
 
@@ -685,6 +774,7 @@
         </div>
     </footer>
 
+    <!-- Scripts -->
     <script src="script.js"></script>
 </body>
 
