@@ -1315,6 +1315,13 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function getDownloadOutputFromUI() {
+        return {
+            zip: document.getElementById('dl-out-zip')?.checked ?? true,
+            individual: document.getElementById('dl-out-files')?.checked ?? false
+        };
+    }
+
     function loadDownloadOptionsIntoUI() {
         const savedOptions = JSON.parse(localStorage.getItem('downloadOptions') || '{}');
         const hasSaved = savedOptions && Object.keys(savedOptions).length > 0;
@@ -1326,6 +1333,8 @@ document.addEventListener('DOMContentLoaded', () => {
             costmap_tiff: true,
             original_tiff: true,
             masks: true,
+            out_zip: true,
+            out_files: false,
             ...(hasSaved ? savedOptions : {})
         };
 
@@ -1340,10 +1349,18 @@ document.addEventListener('DOMContentLoaded', () => {
         set('dl-costmap-tiff', merged.costmap_tiff !== false);
         set('dl-orig-tiff', merged.original_tiff !== false);
         set('dl-masks', merged.masks !== false);
+        set('dl-out-zip', merged.out_zip !== false);
+        set('dl-out-files', merged.out_files === true);
     }
 
     function saveDownloadOptionsFromUI() {
-        localStorage.setItem('downloadOptions', JSON.stringify(getDownloadOptionsFromUI()));
+        const options = getDownloadOptionsFromUI();
+        const output = getDownloadOutputFromUI();
+        localStorage.setItem('downloadOptions', JSON.stringify({
+            ...options,
+            out_zip: output.zip,
+            out_files: output.individual
+        }));
     }
 
     function setDownloadDropdownOpen(open) {
@@ -1377,8 +1394,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function executeDownloadPlan() {
         const options = getDownloadOptionsFromUI();
-        localStorage.setItem('downloadOptions', JSON.stringify(options));
+        const output = getDownloadOutputFromUI();
+        localStorage.setItem('downloadOptions', JSON.stringify({
+            ...options,
+            out_zip: output.zip,
+            out_files: output.individual
+        }));
         const zipName = (downloadZipNameInput && downloadZipNameInput.value) ? downloadZipNameInput.value.trim() : '';
+
+        if (!output.zip && !output.individual) {
+            alert('Select at least one output type: ZIP and/or Files.');
+            return;
+        }
 
         const originalText = downloadPlanBtn ? downloadPlanBtn.textContent : '';
         if (downloadPlanBtn) {
@@ -1398,21 +1425,44 @@ document.addEventListener('DOMContentLoaded', () => {
                     start: plannerState.startPoint,
                     end: plannerState.endPoint,
                     options: options,
-                    zip_name: zipName
+                    zip_name: zipName,
+                    output: output
                 })
             });
 
             if (response.ok) {
                 const data = await response.json();
-                if (data.download_url) {
-                    const link = document.createElement('a');
-                    link.href = `${API_BASE_URL}${data.download_url}`;
-                    link.download = data.zip_filename || (zipName || '');
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                } else {
-                    alert("Download URL missing in response.");
+
+                if (output.zip) {
+                    if (data.download_url) {
+                        const link = document.createElement('a');
+                        link.href = `${API_BASE_URL}${data.download_url}`;
+                        link.download = data.zip_filename || (zipName || '');
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } else {
+                        alert("ZIP download URL missing in response.");
+                    }
+                }
+
+                if (output.individual) {
+                    const files = Array.isArray(data.individual_files) ? data.individual_files : [];
+                    if (files.length === 0) {
+                        alert('No individual files were generated for the selected options.');
+                    }
+                    for (const f of files) {
+                        if (!f || !f.url) continue;
+                        const link = document.createElement('a');
+                        link.href = `${API_BASE_URL}${f.url}`;
+                        link.download = f.filename || '';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        // Light throttling to avoid the browser dropping some downloads.
+                        // eslint-disable-next-line no-await-in-loop
+                        await new Promise(r => setTimeout(r, 150));
+                    }
                 }
             } else {
                 const err = await response.json();
@@ -2174,7 +2224,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Download dropdown (options)
         loadDownloadOptionsIntoUI();
-        ['dl-rgb', 'dl-white', 'dl-meta', 'dl-costmap-files', 'dl-costmap-tiff', 'dl-orig-tiff', 'dl-masks'].forEach((id) => {
+        ['dl-rgb', 'dl-white', 'dl-meta', 'dl-costmap-files', 'dl-costmap-tiff', 'dl-orig-tiff', 'dl-masks', 'dl-out-zip', 'dl-out-files'].forEach((id) => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('change', saveDownloadOptionsFromUI);
         });

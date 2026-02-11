@@ -1428,6 +1428,9 @@ def download_plan():
     end = data.get("end")
     options = data.get("options", {}) # { "include_rgb": true, ... }
     zip_name = (data.get("zip_name") or "").strip()
+    output = data.get("output") or {}
+    want_zip = output.get("zip", True)
+    want_individual = output.get("individual", False)
     
     # Default options (if empty) - Enable ALL by default per user request
     if not options:
@@ -1496,10 +1499,11 @@ def download_plan():
                 cleaned += ".zip"
             return cleaned
 
-        # Create temp dir for zip (allow overwriting by name)
+        # Create temp dir for outputs (allow overwriting by name)
         run_timestamp = int(time.time())
         default_name = f"plan_{tiff_folder}_{run_timestamp}.zip"
         zip_basename = _safe_zip_basename(zip_name) or _safe_zip_basename(default_name)
+        base_name = os.path.splitext(zip_basename)[0]
         downloads_dir = os.path.join(RESULTS_FOLDER, "temp_downloads")
         os.makedirs(downloads_dir, exist_ok=True)
         zip_path = os.path.join(downloads_dir, zip_basename)
@@ -1509,7 +1513,15 @@ def download_plan():
             shutil.rmtree(temp_dir)
         if os.path.exists(zip_path):
             os.remove(zip_path)
+        masks_zip_path = os.path.join(downloads_dir, f"{base_name}_masks.zip")
+        if os.path.exists(masks_zip_path):
+            os.remove(masks_zip_path)
         os.makedirs(temp_dir, exist_ok=True)
+
+        individual_files = []
+
+        def _add_individual(url_path: str, suggested_filename: str):
+            individual_files.append({"url": url_path, "filename": suggested_filename})
         
         # --- 1. RGB Plan (Full Res) ---
         if options.get("rgb_plan") and os.path.exists(original_tiff_path):
@@ -1619,14 +1631,57 @@ def download_plan():
             masks_src = os.path.join(RESULTS_FOLDER, tiff_folder, "mask", "temp_latest", "refined")
             if os.path.exists(masks_src):
                 shutil.copytree(masks_src, os.path.join(temp_dir, "masks"))
-        
-        # Zip
-        shutil.make_archive(zip_path.replace('.zip', ''), 'zip', temp_dir)
+
+        # Build individual downloads manifest (and any per-item zips)
+        if want_individual:
+            # These files live under /results/temp_downloads/<base_name>/...
+            base_url_prefix = f"/results/temp_downloads/{base_name}"
+
+            def _maybe_add(rel_name: str, suffix_name: str):
+                full_path = os.path.join(temp_dir, rel_name)
+                if os.path.exists(full_path):
+                    _add_individual(f"{base_url_prefix}/{rel_name}", f"{base_name}_{suffix_name}")
+
+            if options.get("rgb_plan"):
+                _maybe_add("plan_on_rgb.png", "plan_on_rgb.png")
+            if options.get("white_plan"):
+                _maybe_add("plan_on_white.png", "plan_on_white.png")
+            if options.get("metadata"):
+                _maybe_add("metadata.txt", "metadata.txt")
+            if options.get("costmap_tiff"):
+                _maybe_add("costmap.tif", "costmap.tif")
+            if options.get("original_tiff"):
+                _maybe_add("original.tif", "original.tif")
+
+            if options.get("costmap_files"):
+                _maybe_add("costmap/costmap.png", "costmap.png")
+                _maybe_add("costmap/costmap_bw.png", "costmap_bw.png")
+
+            if options.get("masks"):
+                masks_dir = os.path.join(temp_dir, "masks")
+                if os.path.exists(masks_dir):
+                    # Zip masks folder as a single downloadable item
+                    shutil.make_archive(masks_zip_path.replace(".zip", ""), "zip", temp_dir, "masks")
+                    _add_individual(
+                        f"/results/temp_downloads/{os.path.basename(masks_zip_path)}",
+                        os.path.basename(masks_zip_path),
+                    )
+
+        # Zip (optional)
+        zip_url = None
+        if want_zip:
+            shutil.make_archive(zip_path.replace('.zip', ''), 'zip', temp_dir)
+            zip_url = f"/results/temp_downloads/{zip_basename}"
         
         # Cleanup
         # shutil.rmtree(temp_dir) 
-        
-        return jsonify({"download_url": f"/results/temp_downloads/{zip_basename}", "zip_filename": zip_basename})
+
+        return jsonify({
+            "download_url": zip_url,
+            "zip_filename": zip_basename if want_zip else None,
+            "base_name": base_name,
+            "individual_files": individual_files if want_individual else [],
+        })
         
     except Exception as e:
         print(f"DOWNLOAD PLAN ERROR: {e}")
