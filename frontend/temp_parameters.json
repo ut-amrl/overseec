@@ -9,10 +9,10 @@
   "cmap_device": "cuda:6",
   "sam_device": "cuda:6",
   "semseg_device": "cuda:6",
-  "semseg_tile_size": "256",
-  "semseg_stride": "128",
-  "refiner_tile_size": "256",
-  "refiner_stride": "128",
+  "semseg_tile_size": "512",
+  "semseg_stride": "90",
+  "refiner_tile_size": "512",
+  "refiner_stride": "90",
   "semseg_combine_method": "max",
   "refiner_combine_method": "max"
 }
