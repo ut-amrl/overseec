@@ -12,3 +12,4 @@ results/
 geotiffs/
 generated_costmap.py
 .env
+**/experiments/*/
