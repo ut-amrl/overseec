@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="description"
+      content="OVerSeeC: Open-Vocabulary Costmap Generation from Satellite Images and Natural Language"
+    />
+    <meta
+      name="keywords"
+      content="OVerSeeC, open-vocabulary, costmap, satellite, natural language, navigation"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>
+      OVerSeeC: Open-Vocabulary Costmap Generation from Satellite Images and
+      Natural Language
+    </title>
+
+    <link
+      href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css"
+    />
+    <link rel="stylesheet" href="./index.css" />
+    <link rel="icon" href="./images/favicon.svg" />
+  </head>
+
+  <body>
+    <section class="hero">
+      <div class="hero-body">
+        <div class="container is-max-desktop">
+          <div class="columns is-centered">
+            <div class="column has-text-centered">
+              <h1 class="title is-2 publication-title">
+                OVerSeeC: Open-Vocabulary Costmap Generation from Satellite Images
+                and Natural Language
+              </h1>
+
+              <div class="is-size-5 publication-authors">
+                <span class="author-block"
+                  ><a
+                    href="https://rwik2000.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Rwik Rana</a
+                  ><sup>1</sup>,</span
+                >
+                <span class="author-block"
+                  ><a
+                    href="https://www.linkedin.com/in/jessequattro/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Jesse Quattrociocchi</a
+                  ><sup>2</sup>,</span
+                >
+                <span class="author-block"
+                  ><a
+                    href="https://linkedin.com/in/shine9316"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Dongmyeong Lee</a
+                  ><sup>1</sup>,</span
+                >
+                <span class="author-block"
+                  ><a
+                    href="https://autonomy.oden.utexas.edu/profiles/christian-c-ellis"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Christian Ellis</a
+                  ><sup>2</sup>,</span
+                >
+                <span class="author-block"
+                  ><a
+                    href="https://scholar.google.com/citations?user=mhvNKHIAAAAJ&hl=en"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Amanda Adkins</a
+                  ><sup>1</sup>,</span
+                >
+                <span class="author-block"
+                  ><a
+                    href="https://www.linkedin.com/in/adam-uccello/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Adam Uccello</a
+                  ><sup>2</sup>,</span
+                >
+                <span class="author-block"
+                  ><a
+                    href="https://scholar.google.com/citations?user=Ndp8dmgAAAAJ&hl=en"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Garrett Warnell</a
+                  ><sup>2</sup>,</span
+                >
+                <span class="author-block"
+                  ><a
+                    href="https://www.joydeepb.com/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Joydeep Biswas</a
+                  ><sup>1</sup></span
+                >
+              </div>
+
+              <div class="is-size-5 publication-authors">
+                <span class="author-block"
+                  ><sup>1</sup>The University of Texas at Austin</span
+                >
+                <span class="author-block"
+                  ><sup>2</sup>DEVCOM Army Research Laboratory</span
+                >
+              </div>
+
+              <div class="publication-links">
+                <span class="link-block">
+                  <span class="button is-normal is-rounded is-dark is-static">
+                    <span class="icon"><i class="ai ai-arxiv"></i></span>
+                    <span>arXiv (coming soon)</span>
+                  </span>
+                </span>
+                <span class="link-block">
+                  <span class="button is-normal is-rounded is-dark is-static">
+                    <span class="icon"><i class="fab fa-github"></i></span>
+                    <span>Code (GitHub; coming soon)</span>
+                  </span>
+                </span>
+                <span class="link-block">
+                  <a
+                    class="external-link button is-normal is-rounded is-dark"
+                    href="./OVerSeeC.pdf"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span class="icon"><i class="fas fa-file-pdf"></i></span>
+                    <span>PDF</span>
+                  </a>
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container is-max-desktop">
+        <figure class="image overview-figure">
+          <img
+            src="./images/overview_compressed.png"
+            alt="OVerSeeC overview architecture figure"
+          />
+        </figure>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container is-max-desktop">
+        <h2 class="title is-3">Abstract</h2>
+        <div class="content has-text-justified">
+          <p>
+            Aerial imagery provides essential global context for autonomous
+            navigation, enabling route planning at scales inaccessible to onboard
+            sensing. We address the problem of generating global costmaps for
+            long-range planning directly from satellite imagery when entities
+            and mission-specific traversal rules are expressed in natural
+            language at test time. This setting is challenging since mission
+            requirements vary, terrain entities may be unknown at deployment,
+            and user prompts often encode compositional traversal logic.
+            Existing approaches relying on fixed ontologies and static cost
+            mappings cannot accommodate such flexibility. While foundation
+            models excel at language interpretation and open-vocabulary
+            perception, no single model can simultaneously parse nuanced mission
+            directives, locate arbitrary entities in large-scale imagery, and
+            synthesize them into an executable cost function for planners. We
+            therefore propose OVerSeeC, a zero-shot modular framework that
+            decomposes the problem into Interpret–Locate–Synthesize: (i) an LLM
+            extracts entities and ranked preferences, (ii) an open-vocabulary
+            segmentation pipeline identifies these entities from high-resolution
+            imagery, and (iii) the LLM uses the user’s natural language
+            preferences and masks to synthesize executable costmap code.
+            Empirically, OVerSeeC handles novel entities, respects ranked and
+            compositional preferences, and produces routes consistent with
+            human-drawn trajectories across diverse regions, demonstrating
+            robustness to distribution shifts. This shows that modular
+            composition of foundation models enables open-vocabulary,
+            preference-aligned costmap generation for scalable, mission-adaptive
+            global planning.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container is-max-desktop">
+        <h2 class="title is-3">Results</h2>
+        <div class="content">
+          <figure class="image">
+            <img
+              src="./human_eval_overseec.png"
+              alt="Human evaluation results for OVerSeeC"
+            />
+          </figure>
+          <figure class="image">
+            <img src="./images/rrpi.png" alt="RRPI figure" />
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <div class="content has-text-centered">
+        <p class="has-text-grey is-size-7">
+          Website template inspired by
+          <a
+            href="https://nerfies.github.io/"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Nerfies</a
+          >-style project pages.
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

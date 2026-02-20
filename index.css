@@ -1,0 +1,41 @@
+html,
+body {
+  font-family: "Google Sans", "Noto Sans", "Castoro", system-ui, -apple-system,
+    Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+.publication-title {
+  line-height: 1.15;
+}
+
+.publication-authors .author-block {
+  display: inline-block;
+  margin-right: 0.25rem;
+}
+
+.publication-links {
+  margin-top: 1rem;
+}
+
+.publication-links .link-block {
+  display: inline-block;
+  margin: 0.25rem;
+}
+
+figure.image img {
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+}
+
+.overview-figure {
+  max-width: 50%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 768px) {
+  .overview-figure {
+    max-width: 100%;
+  }
+}
+
