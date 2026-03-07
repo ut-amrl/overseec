@@ -115,36 +115,44 @@ function astar(costmap, H, W, sx, sy, gx, gy, base_move_cost, tie_breaker) {
 function smoothPath(path, costmap, H, W) {
   if (path.length <= 2) return path;
 
-  // Check if a straight line from (x0,y0) to (x1,y1) is collision-free.
-  // "Collision" = any cell along the line has cost > max_cost_threshold,
-  // where the threshold is the max cost of the two endpoints * a tolerance.
-  function lineOfSight(x0, y0, x1, y1) {
-    const endCost = Math.max(costmap[y0 * W + x0], costmap[y1 * W + x1]);
-    const threshold = endCost + 50; // allow some tolerance
-
+  // Sum costs along a Bresenham line between two points.
+  function lineCost(x0, y0, x1, y1) {
+    let total = 0, count = 0;
     let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
     let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
     let err = dx - dy;
     let cx = x0, cy = y0;
 
     while (true) {
-      if (cx < 0 || cx >= W || cy < 0 || cy >= H) return false;
-      if (costmap[cy * W + cx] > threshold) return false;
+      if (cx < 0 || cx >= W || cy < 0 || cy >= H) return Infinity;
+      total += costmap[cy * W + cx];
+      count++;
       if (cx === x1 && cy === y1) break;
       const e2 = 2 * err;
       if (e2 > -dy) { err -= dy; cx += sx; }
       if (e2 <  dx) { err += dx; cy += sy; }
     }
-    return true;
+    return total;
+  }
+
+  // Sum costs along the original A* path segment from index i to j.
+  function segmentCost(i, j) {
+    let total = 0;
+    for (let k = i; k <= j; k++) {
+      total += costmap[path[k][1] * W + path[k][0]];
+    }
+    return total;
   }
 
   const smoothed = [path[0]];
   let i = 0;
   while (i < path.length - 1) {
-    // Greedily skip as far ahead as line-of-sight allows
+    // Only take a shortcut if its total cost is not worse than the original segment
     let farthest = i + 1;
     for (let j = path.length - 1; j > i + 1; j--) {
-      if (lineOfSight(path[i][0], path[i][1], path[j][0], path[j][1])) {
+      const sc = lineCost(path[i][0], path[i][1], path[j][0], path[j][1]);
+      const pc = segmentCost(i, j);
+      if (sc <= pc * 1.05) {
         farthest = j;
         break;
       }

@@ -34,7 +34,6 @@
     />
     <link rel="stylesheet" href="./index.css" />
     <link rel="icon" href="./images/favicon.svg" />
-    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
     <script src="./demo_config.js"></script>
     <script src="./astar.js"></script>
   </head>
@@ -270,6 +269,25 @@
     (async function () {
       const container = document.getElementById("demo-container");
 
+      // ── Helper: load an image as a promise ──
+      function loadImage(src) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Failed to load " + src));
+          img.src = src;
+        });
+      }
+
+      // ── Helper: image → off-screen canvas ──
+      function imgToCanvas(img) {
+        const c = document.createElement("canvas");
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        c.getContext("2d").drawImage(img, 0, 0);
+        return c;
+      }
+
       // ── Planner modal state ──
       const modal        = document.getElementById("planner-modal");
       const modalTitle   = document.getElementById("planner-modal-title");
@@ -281,23 +299,14 @@
 
       const plannerSlider  = document.getElementById("planner-slider");
       const plannerSliderV = document.getElementById("planner-slider-value");
-      let plannerState = null; // holds current modal session data
+      let plannerState = null;
 
-      function openPlanner(demo, rgbPixels, cmPixels, costmapScalar, width, height) {
+      function openPlanner(demo, rgbOff, cmOff, costmapScalar, width, height) {
         const cfg = Object.assign({}, DEMO_CONFIG.planner, demo.planner || {});
 
         modalCanvas.width = width;
         modalCanvas.height = height;
         modalTitle.textContent = demo.label + " — A* Planner";
-
-        // Off-screen canvases for compositing in modal
-        const rgbOff = document.createElement("canvas");
-        rgbOff.width = width; rgbOff.height = height;
-        rgbOff.getContext("2d").putImageData(rgbPixels, 0, 0);
-
-        const cmOff = document.createElement("canvas");
-        cmOff.width = width; cmOff.height = height;
-        cmOff.getContext("2d").putImageData(cmPixels, 0, 0);
 
         plannerState = {
           width, height, rgbOff, cmOff, costmapScalar, cfg,
@@ -322,13 +331,11 @@
         const { width, height, rgbOff, cmOff, cfg, start, goal, path, overlayOpacity } = plannerState;
         const ctx = modalCanvas.getContext("2d");
 
-        // Draw RGB + costmap overlay
         ctx.drawImage(rgbOff, 0, 0);
         ctx.globalAlpha = overlayOpacity;
         ctx.drawImage(cmOff, 0, 0);
         ctx.globalAlpha = 1.0;
 
-        // Draw path
         if (path && path.length > 1) {
           ctx.strokeStyle = cfg.path_color;
           ctx.lineWidth = cfg.path_width;
@@ -341,7 +348,6 @@
           ctx.stroke();
         }
 
-        // Draw start marker
         const markerR = Math.max(4, Math.round(Math.min(width, height) / 80));
         if (start) {
           ctx.fillStyle = "#00ff00";
@@ -352,7 +358,6 @@
           ctx.fill();
           ctx.stroke();
         }
-        // Draw goal marker
         if (goal) {
           ctx.fillStyle = "#ff0000";
           ctx.strokeStyle = "#000";
@@ -364,7 +369,6 @@
         }
       }
 
-      // Canvas click → set start / goal
       modalCanvas.addEventListener("click", (e) => {
         if (!plannerState) return;
         const rect = modalCanvas.getBoundingClientRect();
@@ -387,7 +391,6 @@
         drawModal();
       });
 
-      // Run A*
       btnRun.addEventListener("click", () => {
         if (!plannerState || !plannerState.start || !plannerState.goal) return;
         const { width, height, costmapScalar, cfg, start, goal } = plannerState;
@@ -395,14 +398,10 @@
         btnRun.disabled = true;
         modalInstr.innerHTML = "Planning...";
 
-        // Use requestAnimationFrame so the UI updates before the blocking call
         requestAnimationFrame(() => {
-          const sx = start.x, sy = start.y;
-          const gx = goal.x,  gy = goal.y;
-
           const path = astar(
             costmapScalar, height, width,
-            sx, sy, gx, gy,
+            start.x, start.y, goal.x, goal.y,
             cfg.base_move_cost, cfg.tie_breaker
           );
 
@@ -416,7 +415,6 @@
         });
       });
 
-      // Clear
       btnClear.addEventListener("click", () => {
         if (!plannerState) return;
         plannerState.start = null;
@@ -427,7 +425,6 @@
         drawModal();
       });
 
-      // Modal slider
       plannerSlider.addEventListener("input", () => {
         if (!plannerState) return;
         const pct = parseInt(plannerSlider.value);
@@ -436,7 +433,6 @@
         drawModal();
       });
 
-      // Close
       btnClose.addEventListener("click", closePlanner);
       modal.addEventListener("click", (e) => {
         if (e.target === modal) closePlanner();
@@ -452,7 +448,6 @@
         title.textContent = demo.label;
         wrapper.appendChild(title);
 
-        // Slider row
         const sliderRow = document.createElement("div");
         sliderRow.className = "demo-slider-row";
 
@@ -475,11 +470,9 @@
         sliderRow.appendChild(slider);
         sliderRow.appendChild(sliderValue);
 
-        // Canvas
         const canvas = document.createElement("canvas");
         canvas.className = "demo-canvas";
 
-        // Plan button (same style as arXiv / Code / PDF buttons)
         const planBtn = document.createElement("button");
         planBtn.className = "button is-normal is-rounded is-dark mt-2 demo-plan-btn";
         planBtn.innerHTML = '<span class="icon"><i class="fas fa-route"></i></span><span>Plan</span>';
@@ -500,87 +493,45 @@
         container.appendChild(wrapper);
 
         try {
-          const opts = { allowFullFile: true };
-          const [rgbTiff, costmapTiff] = await Promise.all([
-            GeoTIFF.fromUrl(`${demo.folder}/${demo.rgb}`, opts),
-            GeoTIFF.fromUrl(`${demo.folder}/${demo.costmap}`, opts),
+          // Load all three images in parallel
+          const [rgbImg, cmImg, cmGrayImg] = await Promise.all([
+            loadImage(demo.folder + "/" + demo.rgb),
+            loadImage(demo.folder + "/" + demo.costmap),
+            loadImage(demo.folder + "/" + demo.costmap_gray),
           ]);
 
-          const rgbImage = await rgbTiff.getImage();
-          const costmapImage = await costmapTiff.getImage();
-
-          const width = rgbImage.getWidth();
-          const height = rgbImage.getHeight();
+          const width = rgbImg.naturalWidth;
+          const height = rgbImg.naturalHeight;
 
           canvas.width = width;
           canvas.height = height;
 
-          const rgbData = await rgbImage.readRasters({ interleave: true });
-          const cmData = await costmapImage.readRasters({ interleave: true });
+          // Off-screen canvases for compositing
+          const rgbOff = imgToCanvas(rgbImg);
+          const cmOff = imgToCanvas(cmImg);
 
-          // Also read costmap as separate bands for the scalar cost used by A*
-          const cmBandsRaw = await costmapImage.readRasters();
-          // Use first band as the scalar costmap
-          const costmapScalar = new Float64Array(cmBandsRaw[0]);
-
-          const rgbBands = Math.round(rgbData.length / (width * height));
-          const cmBands  = Math.round(cmData.length  / (width * height));
-
-          // Build RGB ImageData
-          const rgbPixels = new ImageData(width, height);
-          for (let i = 0; i < width * height; i++) {
-            if (rgbBands >= 3) {
-              rgbPixels.data[i * 4]     = rgbData[i * rgbBands];
-              rgbPixels.data[i * 4 + 1] = rgbData[i * rgbBands + 1];
-              rgbPixels.data[i * 4 + 2] = rgbData[i * rgbBands + 2];
-            } else {
-              const v = rgbData[i];
-              rgbPixels.data[i * 4]     = v;
-              rgbPixels.data[i * 4 + 1] = v;
-              rgbPixels.data[i * 4 + 2] = v;
-            }
-            rgbPixels.data[i * 4 + 3] = 255;
+          // Extract grayscale costmap data for A* planner
+          const cmGrayCanvas = imgToCanvas(cmGrayImg);
+          const cmGrayData = cmGrayCanvas.getContext("2d").getImageData(0, 0, cmGrayCanvas.width, cmGrayCanvas.height).data;
+          const costmapScalar = new Float64Array(cmGrayCanvas.width * cmGrayCanvas.height);
+          for (let i = 0; i < costmapScalar.length; i++) {
+            costmapScalar[i] = cmGrayData[i * 4]; // red channel of grayscale PNG
           }
-
-          // Build costmap ImageData using the TIF's actual colors
-          const cmPixels = new ImageData(width, height);
-          for (let i = 0; i < width * height; i++) {
-            if (cmBands >= 3) {
-              cmPixels.data[i * 4]     = cmData[i * cmBands];
-              cmPixels.data[i * 4 + 1] = cmData[i * cmBands + 1];
-              cmPixels.data[i * 4 + 2] = cmData[i * cmBands + 2];
-              cmPixels.data[i * 4 + 3] = cmBands >= 4 ? cmData[i * cmBands + 3] : 255;
-            } else {
-              const v = cmData[i];
-              cmPixels.data[i * 4]     = v;
-              cmPixels.data[i * 4 + 1] = v;
-              cmPixels.data[i * 4 + 2] = v;
-              cmPixels.data[i * 4 + 3] = 255;
-            }
-          }
-
-          // Off-screen canvas for costmap
-          const cmCanvas = document.createElement("canvas");
-          cmCanvas.width = width;
-          cmCanvas.height = height;
-          const cmCtx = cmCanvas.getContext("2d");
-          cmCtx.putImageData(cmPixels, 0, 0);
 
           function draw(overlayOpacity) {
             const ctx = canvas.getContext("2d");
-            ctx.putImageData(rgbPixels, 0, 0);
+            ctx.drawImage(rgbOff, 0, 0);
             ctx.globalAlpha = overlayOpacity;
-            ctx.drawImage(cmCanvas, 0, 0);
+            ctx.drawImage(cmOff, 0, 0);
             ctx.globalAlpha = 1.0;
           }
 
           draw(0.5);
           loadingMsg.remove();
 
-          // Enable Plan button now that data is loaded
           planBtn.disabled = false;
           planBtn.addEventListener("click", () => {
-            openPlanner(demo, rgbPixels, cmPixels, costmapScalar, width, height);
+            openPlanner(demo, rgbOff, cmOff, costmapScalar, width, height);
           });
 
           slider.addEventListener("input", () => {
