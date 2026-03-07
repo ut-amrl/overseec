@@ -46,7 +46,7 @@
           <h3 class="title is-4 mb-0" id="planner-modal-title"></h3>
           <button class="delete is-large" id="planner-modal-close"></button>
         </div>
-        <p class="planner-instructions" id="planner-instructions">Click on the image to set the <strong>start</strong> point (green).</p>
+        <p class="planner-instructions" id="planner-instructions"><strong>Click once</strong> to set the start (green), <strong>click again</strong> to set the goal (red), then press <strong>Run Planner</strong>.</p>
         <div class="planner-slider-row">
           <label class="demo-slider-label">Costmap overlay: </label>
           <input type="range" min="0" max="100" value="50" class="demo-slider planner-slider" id="planner-slider" />
@@ -57,7 +57,7 @@
         </div>
         <div class="planner-modal-controls">
           <button class="button is-normal is-rounded is-dark" id="planner-run-btn" disabled>
-            <span class="icon"><i class="fas fa-play"></i></span><span>Run A*</span>
+            <span class="icon"><i class="fas fa-play"></i></span><span>Run Planner</span>
           </button>
           <button class="button is-normal is-rounded is-dark" id="planner-clear-btn">
             <span class="icon"><i class="fas fa-eraser"></i></span><span>Clear</span>
@@ -241,6 +241,7 @@
               <img
                 src="./images/overview_compressed.png"
                 alt="OVerSeeC overview architecture figure"
+                loading="lazy"
               />
             </figure>
           </div>
@@ -248,6 +249,7 @@
       </div>
     </section>
 
+    <!-- Results section (commented out for now)
     <section class="section">
       <div class="container is-max-desktop">
         <h2 class="title is-3">Results</h2>
@@ -264,6 +266,7 @@
         </div>
       </div>
     </section>
+    -->
 
     <script>
     (async function () {
@@ -306,7 +309,7 @@
 
         modalCanvas.width = width;
         modalCanvas.height = height;
-        modalTitle.textContent = demo.label + " — A* Planner";
+        modalTitle.textContent = demo.label + " — Global Planner";
 
         plannerState = {
           width, height, rgbOff, cmOff, costmapScalar, cfg,
@@ -316,7 +319,7 @@
         plannerSlider.value = "50";
         plannerSliderV.textContent = "50%";
         btnRun.disabled = true;
-        modalInstr.innerHTML = 'Click on the image to set the <strong>start</strong> point (green).';
+        modalInstr.innerHTML = '<strong>Click once</strong> to set the start (green), <strong>click again</strong> to set the goal (red), then press <strong>Run Planner</strong>.';
         modal.style.display = "flex";
         drawModal();
       }
@@ -380,12 +383,12 @@
         if (!plannerState.start) {
           plannerState.start = { x: px, y: py };
           plannerState.path = null;
-          modalInstr.innerHTML = 'Now click to set the <strong>goal</strong> point (red).';
+          modalInstr.innerHTML = 'Start set. Now <strong>click again</strong> to set the goal (red).';
           btnRun.disabled = true;
         } else if (!plannerState.goal) {
           plannerState.goal = { x: px, y: py };
           plannerState.path = null;
-          modalInstr.innerHTML = 'Start and goal set. Press <strong>Run A*</strong>.';
+          modalInstr.innerHTML = 'Start and goal set. Press <strong>Run Planner</strong>.';
           btnRun.disabled = false;
         }
         drawModal();
@@ -421,7 +424,7 @@
         plannerState.goal = null;
         plannerState.path = null;
         btnRun.disabled = true;
-        modalInstr.innerHTML = 'Click on the image to set the <strong>start</strong> point (green).';
+        modalInstr.innerHTML = '<strong>Click once</strong> to set the start (green), <strong>click again</strong> to set the goal (red), then press <strong>Run Planner</strong>.';
         drawModal();
       });
 
