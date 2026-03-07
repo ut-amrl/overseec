@@ -28,14 +28,167 @@ figure.image img {
 }
 
 .overview-figure {
-  max-width: 50%;
+  max-width: 100%;
   margin-left: auto;
   margin-right: auto;
 }
 
+.abstract-overview .content {
+  font-size: 0.9rem;
+}
+
 @media (max-width: 768px) {
-  .overview-figure {
-    max-width: 100%;
+  .abstract-overview .column + .column {
+    margin-top: 1.5rem;
   }
 }
 
+/* Demo section */
+#demo-container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2rem;
+}
+
+.demo-item {
+  flex: 0 0 350px;
+  max-width: 350px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.demo-item .title {
+  width: 100%;
+  text-align: center;
+}
+
+.demo-canvas {
+  display: block;
+  width: 100%;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+}
+
+.demo-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.demo-slider-label {
+  white-space: nowrap;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.demo-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: #ddd;
+  border-radius: 3px;
+  outline: none;
+}
+
+.demo-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+  background: #363636;
+  cursor: pointer;
+  border: none;
+}
+
+.demo-slider::-moz-range-thumb {
+  width: 24px;
+  height: 14px;
+  border-radius: 7px;
+  background: #363636;
+  cursor: pointer;
+  border: none;
+}
+
+.demo-slider-value {
+  min-width: 3rem;
+  text-align: right;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.demo-image-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Planner modal */
+.planner-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.planner-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 1.5rem;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+}
+
+.planner-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.planner-instructions {
+  font-size: 0.9rem;
+  color: #555;
+  margin-bottom: 0.5rem;
+}
+
+.planner-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.planner-modal-canvas-wrap {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.planner-modal-canvas-wrap canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  cursor: crosshair;
+}
+
+.planner-modal-controls {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  justify-content: center;
+}

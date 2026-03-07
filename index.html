@@ -34,9 +34,38 @@
     />
     <link rel="stylesheet" href="./index.css" />
     <link rel="icon" href="./images/favicon.svg" />
+    <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
+    <script src="./demo_config.js"></script>
+    <script src="./astar.js"></script>
   </head>
 
   <body>
+    <!-- Planner modal -->
+    <div id="planner-modal" class="planner-modal-overlay" style="display:none">
+      <div class="planner-modal">
+        <div class="planner-modal-header">
+          <h3 class="title is-4 mb-0" id="planner-modal-title"></h3>
+          <button class="delete is-large" id="planner-modal-close"></button>
+        </div>
+        <p class="planner-instructions" id="planner-instructions">Click on the image to set the <strong>start</strong> point (green).</p>
+        <div class="planner-slider-row">
+          <label class="demo-slider-label">Costmap overlay: </label>
+          <input type="range" min="0" max="100" value="50" class="demo-slider planner-slider" id="planner-slider" />
+          <span class="demo-slider-value" id="planner-slider-value">50%</span>
+        </div>
+        <div class="planner-modal-canvas-wrap">
+          <canvas id="planner-canvas"></canvas>
+        </div>
+        <div class="planner-modal-controls">
+          <button class="button is-normal is-rounded is-dark" id="planner-run-btn" disabled>
+            <span class="icon"><i class="fas fa-play"></i></span><span>Run A*</span>
+          </button>
+          <button class="button is-normal is-rounded is-dark" id="planner-clear-btn">
+            <span class="icon"><i class="fas fa-eraser"></i></span><span>Clear</span>
+          </button>
+        </div>
+      </div>
+    </div>
     <section class="hero">
       <div class="hero-body">
         <div class="container is-max-desktop">
@@ -164,50 +193,58 @@
       </div>
     </section>
 
-    <section class="section">
+    <section class="section" id="demos-section">
       <div class="container is-max-desktop">
-        <figure class="image overview-figure">
-          <img
-            src="./images/overview_compressed.png"
-            alt="OVerSeeC overview architecture figure"
-          />
-        </figure>
+        <!-- <h2 class="title is-3">Demos</h2> -->
+        <div id="demo-container"></div>
       </div>
     </section>
 
     <section class="section">
       <div class="container is-max-desktop">
-        <h2 class="title is-3">Abstract</h2>
-        <div class="content has-text-justified">
-          <p>
-            Aerial imagery provides essential global context for autonomous
-            navigation, enabling route planning at scales inaccessible to onboard
-            sensing. We address the problem of generating global costmaps for
-            long-range planning directly from satellite imagery when entities
-            and mission-specific traversal rules are expressed in natural
-            language at test time. This setting is challenging since mission
-            requirements vary, terrain entities may be unknown at deployment,
-            and user prompts often encode compositional traversal logic.
-            Existing approaches relying on fixed ontologies and static cost
-            mappings cannot accommodate such flexibility. While foundation
-            models excel at language interpretation and open-vocabulary
-            perception, no single model can simultaneously parse nuanced mission
-            directives, locate arbitrary entities in large-scale imagery, and
-            synthesize them into an executable cost function for planners. We
-            therefore propose OVerSeeC, a zero-shot modular framework that
-            decomposes the problem into Interpret–Locate–Synthesize: (i) an LLM
-            extracts entities and ranked preferences, (ii) an open-vocabulary
-            segmentation pipeline identifies these entities from high-resolution
-            imagery, and (iii) the LLM uses the user’s natural language
-            preferences and masks to synthesize executable costmap code.
-            Empirically, OVerSeeC handles novel entities, respects ranked and
-            compositional preferences, and produces routes consistent with
-            human-drawn trajectories across diverse regions, demonstrating
-            robustness to distribution shifts. This shows that modular
-            composition of foundation models enables open-vocabulary,
-            preference-aligned costmap generation for scalable, mission-adaptive
-            global planning.
-          </p>
+        <div class="columns is-variable is-6 is-vcentered abstract-overview">
+          <div class="column is-6">
+            <h2 class="title is-3">Abstract</h2>
+            <div class="content has-text-justified">
+              <p>
+                Aerial imagery provides essential global context for autonomous
+                navigation, enabling route planning at scales inaccessible to onboard
+                sensing. We address the problem of generating global costmaps for
+                long-range planning directly from satellite imagery when entities
+                and mission-specific traversal rules are expressed in natural
+                language at test time. This setting is challenging since mission
+                requirements vary, terrain entities may be unknown at deployment,
+                and user prompts often encode compositional traversal logic.
+                Existing approaches relying on fixed ontologies and static cost
+                mappings cannot accommodate such flexibility. While foundation
+                models excel at language interpretation and open-vocabulary
+                perception, no single model can simultaneously parse nuanced mission
+                directives, locate arbitrary entities in large-scale imagery, and
+                synthesize them into an executable cost function for planners. We
+                therefore propose OVerSeeC, a zero-shot modular framework that
+                decomposes the problem into Interpret–Locate–Synthesize: (i) an LLM
+                extracts entities and ranked preferences, (ii) an open-vocabulary
+                segmentation pipeline identifies these entities from high-resolution
+                imagery, and (iii) the LLM uses the user’s natural language
+                preferences and masks to synthesize executable costmap code.
+                Empirically, OVerSeeC handles novel entities, respects ranked and
+                compositional preferences, and produces routes consistent with
+                human-drawn trajectories across diverse regions, demonstrating
+                robustness to distribution shifts. This shows that modular
+                composition of foundation models enables open-vocabulary,
+                preference-aligned costmap generation for scalable, mission-adaptive
+                global planning.
+              </p>
+            </div>
+          </div>
+          <div class="column is-6">
+            <figure class="image overview-figure">
+              <img
+                src="./images/overview_compressed.png"
+                alt="OVerSeeC overview architecture figure"
+              />
+            </figure>
+          </div>
         </div>
       </div>
     </section>
@@ -228,6 +265,340 @@
         </div>
       </div>
     </section>
+
+    <script>
+    (async function () {
+      const container = document.getElementById("demo-container");
+
+      // ── Planner modal state ──
+      const modal        = document.getElementById("planner-modal");
+      const modalTitle   = document.getElementById("planner-modal-title");
+      const modalInstr   = document.getElementById("planner-instructions");
+      const modalCanvas  = document.getElementById("planner-canvas");
+      const btnRun       = document.getElementById("planner-run-btn");
+      const btnClear     = document.getElementById("planner-clear-btn");
+      const btnClose     = document.getElementById("planner-modal-close");
+
+      const plannerSlider  = document.getElementById("planner-slider");
+      const plannerSliderV = document.getElementById("planner-slider-value");
+      let plannerState = null; // holds current modal session data
+
+      function openPlanner(demo, rgbPixels, cmPixels, costmapScalar, width, height) {
+        const cfg = Object.assign({}, DEMO_CONFIG.planner, demo.planner || {});
+
+        modalCanvas.width = width;
+        modalCanvas.height = height;
+        modalTitle.textContent = demo.label + " — A* Planner";
+
+        // Off-screen canvases for compositing in modal
+        const rgbOff = document.createElement("canvas");
+        rgbOff.width = width; rgbOff.height = height;
+        rgbOff.getContext("2d").putImageData(rgbPixels, 0, 0);
+
+        const cmOff = document.createElement("canvas");
+        cmOff.width = width; cmOff.height = height;
+        cmOff.getContext("2d").putImageData(cmPixels, 0, 0);
+
+        plannerState = {
+          width, height, rgbOff, cmOff, costmapScalar, cfg,
+          start: null, goal: null, path: null, overlayOpacity: 0.5,
+        };
+
+        plannerSlider.value = "50";
+        plannerSliderV.textContent = "50%";
+        btnRun.disabled = true;
+        modalInstr.innerHTML = 'Click on the image to set the <strong>start</strong> point (green).';
+        modal.style.display = "flex";
+        drawModal();
+      }
+
+      function closePlanner() {
+        modal.style.display = "none";
+        plannerState = null;
+      }
+
+      function drawModal() {
+        if (!plannerState) return;
+        const { width, height, rgbOff, cmOff, cfg, start, goal, path, overlayOpacity } = plannerState;
+        const ctx = modalCanvas.getContext("2d");
+
+        // Draw RGB + costmap overlay
+        ctx.drawImage(rgbOff, 0, 0);
+        ctx.globalAlpha = overlayOpacity;
+        ctx.drawImage(cmOff, 0, 0);
+        ctx.globalAlpha = 1.0;
+
+        // Draw path
+        if (path && path.length > 1) {
+          ctx.strokeStyle = cfg.path_color;
+          ctx.lineWidth = cfg.path_width;
+          ctx.lineJoin = "round";
+          ctx.beginPath();
+          ctx.moveTo(path[0][0], path[0][1]);
+          for (let i = 1; i < path.length; i++) {
+            ctx.lineTo(path[i][0], path[i][1]);
+          }
+          ctx.stroke();
+        }
+
+        // Draw start marker
+        const markerR = Math.max(4, Math.round(Math.min(width, height) / 80));
+        if (start) {
+          ctx.fillStyle = "#00ff00";
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(start.x, start.y, markerR, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.stroke();
+        }
+        // Draw goal marker
+        if (goal) {
+          ctx.fillStyle = "#ff0000";
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(goal.x, goal.y, markerR, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+
+      // Canvas click → set start / goal
+      modalCanvas.addEventListener("click", (e) => {
+        if (!plannerState) return;
+        const rect = modalCanvas.getBoundingClientRect();
+        const scaleX = plannerState.width / rect.width;
+        const scaleY = plannerState.height / rect.height;
+        const px = Math.round((e.clientX - rect.left) * scaleX);
+        const py = Math.round((e.clientY - rect.top) * scaleY);
+
+        if (!plannerState.start) {
+          plannerState.start = { x: px, y: py };
+          plannerState.path = null;
+          modalInstr.innerHTML = 'Now click to set the <strong>goal</strong> point (red).';
+          btnRun.disabled = true;
+        } else if (!plannerState.goal) {
+          plannerState.goal = { x: px, y: py };
+          plannerState.path = null;
+          modalInstr.innerHTML = 'Start and goal set. Press <strong>Run A*</strong>.';
+          btnRun.disabled = false;
+        }
+        drawModal();
+      });
+
+      // Run A*
+      btnRun.addEventListener("click", () => {
+        if (!plannerState || !plannerState.start || !plannerState.goal) return;
+        const { width, height, costmapScalar, cfg, start, goal } = plannerState;
+
+        btnRun.disabled = true;
+        modalInstr.innerHTML = "Planning...";
+
+        // Use requestAnimationFrame so the UI updates before the blocking call
+        requestAnimationFrame(() => {
+          const sx = start.x, sy = start.y;
+          const gx = goal.x,  gy = goal.y;
+
+          const path = astar(
+            costmapScalar, height, width,
+            sx, sy, gx, gy,
+            cfg.base_move_cost, cfg.tie_breaker
+          );
+
+          if (path.length === 0) {
+            modalInstr.innerHTML = '<span style="color:#cc0000">No path found.</span> Clear and try again.';
+          } else {
+            modalInstr.innerHTML = 'Path found (' + path.length + ' points). Clear to plan again.';
+          }
+          plannerState.path = path;
+          drawModal();
+        });
+      });
+
+      // Clear
+      btnClear.addEventListener("click", () => {
+        if (!plannerState) return;
+        plannerState.start = null;
+        plannerState.goal = null;
+        plannerState.path = null;
+        btnRun.disabled = true;
+        modalInstr.innerHTML = 'Click on the image to set the <strong>start</strong> point (green).';
+        drawModal();
+      });
+
+      // Modal slider
+      plannerSlider.addEventListener("input", () => {
+        if (!plannerState) return;
+        const pct = parseInt(plannerSlider.value);
+        plannerSliderV.textContent = pct + "%";
+        plannerState.overlayOpacity = pct / 100;
+        drawModal();
+      });
+
+      // Close
+      btnClose.addEventListener("click", closePlanner);
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) closePlanner();
+      });
+
+      // ── Demo rendering ──
+      async function renderDemo(demo) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "demo-item mb-6";
+
+        const title = document.createElement("h3");
+        title.className = "title is-5 mb-2";
+        title.textContent = demo.label;
+        wrapper.appendChild(title);
+
+        // Slider row
+        const sliderRow = document.createElement("div");
+        sliderRow.className = "demo-slider-row";
+
+        const sliderLabel = document.createElement("label");
+        sliderLabel.className = "demo-slider-label";
+        sliderLabel.textContent = "Costmap overlay: ";
+
+        const slider = document.createElement("input");
+        slider.type = "range";
+        slider.min = "0";
+        slider.max = "100";
+        slider.value = "50";
+        slider.className = "demo-slider";
+
+        const sliderValue = document.createElement("span");
+        sliderValue.className = "demo-slider-value";
+        sliderValue.textContent = "50%";
+
+        sliderRow.appendChild(sliderLabel);
+        sliderRow.appendChild(slider);
+        sliderRow.appendChild(sliderValue);
+
+        // Canvas
+        const canvas = document.createElement("canvas");
+        canvas.className = "demo-canvas";
+
+        // Plan button (same style as arXiv / Code / PDF buttons)
+        const planBtn = document.createElement("button");
+        planBtn.className = "button is-normal is-rounded is-dark mt-2 demo-plan-btn";
+        planBtn.innerHTML = '<span class="icon"><i class="fas fa-route"></i></span><span>Plan</span>';
+        planBtn.disabled = true;
+
+        const loadingMsg = document.createElement("p");
+        loadingMsg.className = "has-text-grey is-size-7 mt-1";
+        loadingMsg.textContent = "Loading...";
+
+        const imageBlock = document.createElement("div");
+        imageBlock.className = "demo-image-block";
+        imageBlock.appendChild(sliderRow);
+        imageBlock.appendChild(canvas);
+        imageBlock.appendChild(planBtn);
+        imageBlock.appendChild(loadingMsg);
+        wrapper.appendChild(imageBlock);
+
+        container.appendChild(wrapper);
+
+        try {
+          const opts = { allowFullFile: true };
+          const [rgbTiff, costmapTiff] = await Promise.all([
+            GeoTIFF.fromUrl(`${demo.folder}/${demo.rgb}`, opts),
+            GeoTIFF.fromUrl(`${demo.folder}/${demo.costmap}`, opts),
+          ]);
+
+          const rgbImage = await rgbTiff.getImage();
+          const costmapImage = await costmapTiff.getImage();
+
+          const width = rgbImage.getWidth();
+          const height = rgbImage.getHeight();
+
+          canvas.width = width;
+          canvas.height = height;
+
+          const rgbData = await rgbImage.readRasters({ interleave: true });
+          const cmData = await costmapImage.readRasters({ interleave: true });
+
+          // Also read costmap as separate bands for the scalar cost used by A*
+          const cmBandsRaw = await costmapImage.readRasters();
+          // Use first band as the scalar costmap
+          const costmapScalar = new Float64Array(cmBandsRaw[0]);
+
+          const rgbBands = Math.round(rgbData.length / (width * height));
+          const cmBands  = Math.round(cmData.length  / (width * height));
+
+          // Build RGB ImageData
+          const rgbPixels = new ImageData(width, height);
+          for (let i = 0; i < width * height; i++) {
+            if (rgbBands >= 3) {
+              rgbPixels.data[i * 4]     = rgbData[i * rgbBands];
+              rgbPixels.data[i * 4 + 1] = rgbData[i * rgbBands + 1];
+              rgbPixels.data[i * 4 + 2] = rgbData[i * rgbBands + 2];
+            } else {
+              const v = rgbData[i];
+              rgbPixels.data[i * 4]     = v;
+              rgbPixels.data[i * 4 + 1] = v;
+              rgbPixels.data[i * 4 + 2] = v;
+            }
+            rgbPixels.data[i * 4 + 3] = 255;
+          }
+
+          // Build costmap ImageData using the TIF's actual colors
+          const cmPixels = new ImageData(width, height);
+          for (let i = 0; i < width * height; i++) {
+            if (cmBands >= 3) {
+              cmPixels.data[i * 4]     = cmData[i * cmBands];
+              cmPixels.data[i * 4 + 1] = cmData[i * cmBands + 1];
+              cmPixels.data[i * 4 + 2] = cmData[i * cmBands + 2];
+              cmPixels.data[i * 4 + 3] = cmBands >= 4 ? cmData[i * cmBands + 3] : 255;
+            } else {
+              const v = cmData[i];
+              cmPixels.data[i * 4]     = v;
+              cmPixels.data[i * 4 + 1] = v;
+              cmPixels.data[i * 4 + 2] = v;
+              cmPixels.data[i * 4 + 3] = 255;
+            }
+          }
+
+          // Off-screen canvas for costmap
+          const cmCanvas = document.createElement("canvas");
+          cmCanvas.width = width;
+          cmCanvas.height = height;
+          const cmCtx = cmCanvas.getContext("2d");
+          cmCtx.putImageData(cmPixels, 0, 0);
+
+          function draw(overlayOpacity) {
+            const ctx = canvas.getContext("2d");
+            ctx.putImageData(rgbPixels, 0, 0);
+            ctx.globalAlpha = overlayOpacity;
+            ctx.drawImage(cmCanvas, 0, 0);
+            ctx.globalAlpha = 1.0;
+          }
+
+          draw(0.5);
+          loadingMsg.remove();
+
+          // Enable Plan button now that data is loaded
+          planBtn.disabled = false;
+          planBtn.addEventListener("click", () => {
+            openPlanner(demo, rgbPixels, cmPixels, costmapScalar, width, height);
+          });
+
+          slider.addEventListener("input", () => {
+            const pct = parseInt(slider.value);
+            sliderValue.textContent = pct + "%";
+            draw(pct / 100);
+          });
+        } catch (err) {
+          loadingMsg.textContent = "Failed to load: " + err.message;
+          console.error("Demo load error:", demo.id, err);
+        }
+      }
+
+      for (const demo of DEMO_CONFIG.demos) {
+        await renderDemo(demo);
+      }
+    })();
+    </script>
 
     <footer class="footer">
       <div class="content has-text-centered">
