@@ -6,7 +6,7 @@ Usage:
 
 Rules:
     rgb.tif              -> rgb.jpg          (JPEG, quality 90)
-    <name>.tif           -> <name>.png       (PNG, color)
+    <name>.tif           -> <name>.jpg       (JPEG, color — for display)
                          -> <name>_gray.png  (PNG, grayscale — used by planner)
 
 If --out is not specified, outputs are written into the same folder as the TIFs.
@@ -38,9 +38,13 @@ def convert_one(src: Path, out_folder: Path, max_size: int) -> None:
         img.save(dst, "JPEG", quality=90)
         print(f"  {src.name} ({src.stat().st_size // 1024} KB) -> {dst.name} ({dst.stat().st_size // 1024} KB)")
     else:
-        # Costmap TIF -> color PNG + grayscale PNG
-        dst_color = out_folder / f"{stem}.png"
-        img.save(dst_color, "PNG")
+        # Costmap TIF -> color JPEG (display) + grayscale PNG (planner)
+        if img.mode not in ("RGB", "L"):
+            img_rgb = img.convert("RGB")
+        else:
+            img_rgb = img
+        dst_color = out_folder / f"{stem}.jpg"
+        img_rgb.save(dst_color, "JPEG", quality=90)
         print(f"  {src.name} ({src.stat().st_size // 1024} KB) -> {dst_color.name} ({dst_color.stat().st_size // 1024} KB)")
 
         dst_gray = out_folder / f"{stem}_gray.png"

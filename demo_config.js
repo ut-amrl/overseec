@@ -7,7 +7,7 @@
 //   rgb:     filename of the RGB image (JPG/PNG)
 //   prompts: array of prompt entries, each with:
 //     label:         natural language prompt that generated this costmap
-//     costmap:       filename of the costmap image for display (PNG)
+//     costmap:       filename of the costmap image for display (JPG)
 //     costmap_gray:  filename of the grayscale costmap for the planner (PNG, single-channel)
 //
 // Planner config (matches astar.cpp variable names):
@@ -34,12 +34,12 @@ const DEMO_CONFIG = {
       prompts: [
         {
           label: "I want to stay on road. Everything else is lethal",
-          costmap: "costmap.png",
+          costmap: "costmap.jpg",
           costmap_gray: "costmap_gray.png",
         },
         {
           label: "I prefer the road and grass. Avoid everything else.",
-          costmap: "costmap_2.png",
+          costmap: "costmap_2.jpg",
           costmap_gray: "costmap_2_gray.png",
         },
       ],
@@ -53,7 +53,7 @@ const DEMO_CONFIG = {
       prompts: [
         {
           label: "I want to stay on only trails. Everything else is lethal. Road is also lethal",
-          costmap: "costmap.png",
+          costmap: "costmap.jpg",
           costmap_gray: "costmap_gray.png",
         },
       ],
