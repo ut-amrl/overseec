@@ -108,6 +108,7 @@
                     >Christian Ellis</a
                   ><sup>2</sup>,</span
                 >
+                <br />
                 <span class="author-block"
                   ><a
                     href="https://scholar.google.com/citations?user=mhvNKHIAAAAJ&hl=en"
@@ -185,6 +186,29 @@
                     <span>PDF</span>
                   </a>
                 </span>
+                <span class="link-block">
+                  <a
+                    class="external-link button is-normal is-rounded is-dark"
+                    href="#spotlight-video"
+                  >
+                    <span class="icon"><i class="fab fa-youtube"></i></span>
+                    <span>RSS 2025 Spotlight Talk (Workshop)</span>
+                  </a>
+                </span>
+                <span class="link-block">
+                  <a
+                    class="external-link button is-normal is-rounded cite-btn"
+                    href="#bibtex-section"
+                  >
+                    <span class="icon">&ldquo;</span>
+                    <span>Cite</span>
+                  </a>
+                </span>
+              </div>
+
+              <div class="is-size-5 mt-3">
+                <p class="mb-1">📜 Selected at IEEE International Conference on Robotics and Automation (ICRA 2026)</p>
+                <p>🏆 <em style="color: #cc0000;">Runner-up for best paper</em> at ROAR Workshop at Robotics: Science and Systems (RSS 2025)</p>
               </div>
             </div>
           </div>
@@ -245,6 +269,45 @@
               />
             </figure>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="spotlight-video">
+      <div class="container is-max-desktop">
+        <h2 class="title is-3 has-text-centered">RSS 2025 Spotlight Talk</h2>
+        <div class="columns is-centered">
+          <div class="column is-8">
+            <div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 10px;">
+              <iframe
+                style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
+                src="https://www.youtube.com/embed/mFr9oEQpcek"
+                title="RSS 2025 Spotlight Talk - ROAR Workshop"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="bibtex-section">
+      <div class="container is-max-desktop">
+        <h2 class="title is-3 has-text-centered">BibTeX</h2>
+        <div class="bibtex-wrap">
+          <pre id="bibtex-code"><code>@misc{rana2026overseec,
+      title={OVerSeeC: Open-Vocabulary Costmap Generation from Satellite Images and Natural Language},
+      author={Rwik Rana and Jesse Quattrociocchi and Dongmyeong Lee and Christian Ellis and Amanda Adkins and Adam Uccello and Garrett Warnell and Joydeep Biswas},
+      year={2026},
+      eprint={2602.18606},
+      archivePrefix={arXiv},
+      primaryClass={cs.RO},
+      url={https://arxiv.org/abs/2602.18606},
+}</code></pre>
+          <button class="button is-small is-rounded" id="copy-bibtex-btn" onclick="var t=document.getElementById('bibtex-code').textContent,b=this;try{var a=document.createElement('textarea');a.value=t;a.style.position='fixed';a.style.opacity='0';document.body.appendChild(a);a.select();document.execCommand('copy');document.body.removeChild(a);b.textContent='Copied!';setTimeout(function(){b.innerHTML='<span class=&quot;icon is-small&quot;><i class=&quot;fas fa-copy&quot;></i></span><span>Copy</span>';},2000)}catch(e){}">
+            <span class="icon is-small"><i class="fas fa-copy"></i></span><span>Copy</span>
+          </button>
         </div>
       </div>
     </section>
