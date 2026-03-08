@@ -443,20 +443,20 @@
 
       // ── Demo rendering (progressive: show RGB first, load costmaps in background) ──
       async function renderDemo(demo) {
-        const wrapper = document.createElement(“div”);
-        wrapper.className = “demo-item mb-6”;
+        const wrapper = document.createElement("div");
+        wrapper.className = "demo-item mb-6";
 
         // Title row: label on left, Plan button on right
-        const titleRow = document.createElement(“div”);
-        titleRow.className = “demo-title-row”;
+        const titleRow = document.createElement("div");
+        titleRow.className = "demo-title-row";
 
-        const title = document.createElement(“h3”);
-        title.className = “title is-5”;
+        const title = document.createElement("h3");
+        title.className = "title is-5";
         title.textContent = demo.label;
 
-        const planBtn = document.createElement(“button”);
-        planBtn.className = “button is-small is-rounded is-dark demo-plan-btn”;
-        planBtn.innerHTML = '<span class=”icon is-small”><i class=”fas fa-route”></i></span><span>Plan</span>';
+        const planBtn = document.createElement("button");
+        planBtn.className = "button is-small is-rounded is-dark demo-plan-btn";
+        planBtn.innerHTML = '<span class="icon is-small"><i class="fas fa-route"></i></span><span>Plan</span>';
         planBtn.disabled = true;
 
         titleRow.appendChild(title);
@@ -464,49 +464,49 @@
         wrapper.appendChild(titleRow);
 
         // Slider row
-        const sliderRow = document.createElement(“div”);
-        sliderRow.className = “demo-slider-row”;
+        const sliderRow = document.createElement("div");
+        sliderRow.className = "demo-slider-row";
 
-        const sliderLabel = document.createElement(“label”);
-        sliderLabel.className = “demo-slider-label”;
-        sliderLabel.textContent = “Costmap overlay: “;
+        const sliderLabel = document.createElement("label");
+        sliderLabel.className = "demo-slider-label";
+        sliderLabel.textContent = "Costmap overlay: ";
 
-        const slider = document.createElement(“input”);
-        slider.type = “range”;
-        slider.min = “0”;
-        slider.max = “100”;
-        slider.value = “50”;
-        slider.className = “demo-slider”;
+        const slider = document.createElement("input");
+        slider.type = "range";
+        slider.min = "0";
+        slider.max = "100";
+        slider.value = "50";
+        slider.className = "demo-slider";
 
-        const sliderValue = document.createElement(“span”);
-        sliderValue.className = “demo-slider-value”;
-        sliderValue.textContent = “50%”;
+        const sliderValue = document.createElement("span");
+        sliderValue.className = "demo-slider-value";
+        sliderValue.textContent = "50%";
 
         sliderRow.appendChild(sliderLabel);
         sliderRow.appendChild(slider);
         sliderRow.appendChild(sliderValue);
 
-        const canvas = document.createElement(“canvas”);
-        canvas.className = “demo-canvas”;
+        const canvas = document.createElement("canvas");
+        canvas.className = "demo-canvas";
 
-        const loadingMsg = document.createElement(“p”);
-        loadingMsg.className = “has-text-grey is-size-7 mt-1”;
-        loadingMsg.textContent = “Loading...”;
+        const loadingMsg = document.createElement("p");
+        loadingMsg.className = "has-text-grey is-size-7 mt-1";
+        loadingMsg.textContent = "Loading...";
 
-        const imageBlock = document.createElement(“div”);
-        imageBlock.className = “demo-image-block”;
+        const imageBlock = document.createElement("div");
+        imageBlock.className = "demo-image-block";
         imageBlock.appendChild(sliderRow);
         imageBlock.appendChild(canvas);
         imageBlock.appendChild(loadingMsg);
         wrapper.appendChild(imageBlock);
 
         // Prompt buttons (render immediately, before images load)
-        const promptRow = document.createElement(“div”);
-        promptRow.className = “prompt-btn-row”;
+        const promptRow = document.createElement("div");
+        promptRow.className = "prompt-btn-row";
         let activeIdx = 0;
         demo.prompts.forEach((p, i) => {
-          const btn = document.createElement(“button”);
-          btn.className = “prompt-btn” + (i === 0 ? “ is-active” : “”);
+          const btn = document.createElement("button");
+          btn.className = "prompt-btn" + (i === 0 ? " is-active" : "");
           var normalizedLabel = p.label.trim().replace(/^["]+|["]+$/g, "");
           btn.textContent = '"' + normalizedLabel + '"';
           promptRow.appendChild(btn);
@@ -522,7 +522,7 @@
 
         function draw(overlayOpacity) {
           if (!rgbOff) return;
-          const ctx = canvas.getContext(“2d”);
+          const ctx = canvas.getContext("2d");
           ctx.drawImage(rgbOff, 0, 0);
           if (promptData[activeIdx]) {
             ctx.globalAlpha = overlayOpacity;
@@ -533,20 +533,20 @@
 
         try {
           // Phase 1: Load RGB image first (single JPEG, fast) and show immediately
-          const rgbImg = await loadImage(demo.folder + “/” + demo.rgb);
+          const rgbImg = await loadImage(demo.folder + "/" + demo.rgb);
           const width = rgbImg.naturalWidth;
           const height = rgbImg.naturalHeight;
           canvas.width = width;
           canvas.height = height;
           rgbOff = imgToCanvas(rgbImg);
           draw(0.5);
-          loadingMsg.textContent = “Loading costmaps...”;
+          loadingMsg.textContent = "Loading costmaps...";
 
           // Phase 2: Load all costmaps (display + grayscale) in parallel
           const allCostmapImgs = await Promise.all(
             demo.prompts.flatMap(p => [
-              loadImage(demo.folder + “/” + p.costmap),
-              loadImage(demo.folder + “/” + p.costmap_gray),
+              loadImage(demo.folder + "/" + p.costmap),
+              loadImage(demo.folder + "/" + p.costmap_gray),
             ])
           );
 
@@ -556,7 +556,7 @@
             const cmGrayImg = allCostmapImgs[i * 2 + 1];
             const cmOff = imgToCanvas(cmImg);
             const cmGrayCanvas = imgToCanvas(cmGrayImg);
-            const raw = cmGrayCanvas.getContext(“2d”).getImageData(0, 0, cmGrayCanvas.width, cmGrayCanvas.height).data;
+            const raw = cmGrayCanvas.getContext("2d").getImageData(0, 0, cmGrayCanvas.width, cmGrayCanvas.height).data;
             const costmapScalar = new Float64Array(cmGrayCanvas.width * cmGrayCanvas.height);
             for (let j = 0; j < costmapScalar.length; j++) costmapScalar[j] = raw[j * 4];
             promptData[i] = { cmOff, costmapScalar };
@@ -567,31 +567,31 @@
           loadingMsg.remove();
 
           // Wire up prompt button clicks
-          promptRow.querySelectorAll(“.prompt-btn”).forEach((btn, i) => {
-            btn.addEventListener(“click”, () => {
+          promptRow.querySelectorAll(".prompt-btn").forEach((btn, i) => {
+            btn.addEventListener("click", () => {
               activeIdx = i;
-              promptRow.querySelectorAll(“.prompt-btn”).forEach((b, j) => {
-                b.classList.toggle(“is-active”, j === i);
+              promptRow.querySelectorAll(".prompt-btn").forEach((b, j) => {
+                b.classList.toggle("is-active", j === i);
               });
               draw(parseInt(slider.value) / 100);
             });
           });
 
           planBtn.disabled = false;
-          planBtn.addEventListener(“click”, () => {
+          planBtn.addEventListener("click", () => {
             const pd = promptData[activeIdx];
             if (!pd) return;
             openPlanner(demo, rgbOff, pd.cmOff, pd.costmapScalar, width, height);
           });
 
-          slider.addEventListener(“input”, () => {
+          slider.addEventListener("input", () => {
             const pct = parseInt(slider.value);
-            sliderValue.textContent = pct + “%”;
+            sliderValue.textContent = pct + "%";
             draw(pct / 100);
           });
         } catch (err) {
-          loadingMsg.textContent = “Failed to load: “ + err.message;
-          console.error(“Demo load error:”, demo.id, err);
+          loadingMsg.textContent = "Failed to load: " + err.message;
+          console.error("Demo load error:", demo.id, err);
         }
       }
 
