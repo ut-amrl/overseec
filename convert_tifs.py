@@ -22,7 +22,7 @@ except ImportError:
     sys.exit("Pillow is required: pip install Pillow")
 
 
-def convert(tif_folder: Path, out_folder: Path) -> None:
+def convert(tif_folder: Path, out_folder: Path, max_size: int = 1536) -> None:
     out_folder.mkdir(parents=True, exist_ok=True)
 
     conversions = [
@@ -41,6 +41,10 @@ def convert(tif_folder: Path, out_folder: Path) -> None:
 
         img = Image.open(src)
 
+        # Resize if larger than max_size on either dimension
+        if max(img.size) > max_size:
+            img.thumbnail((max_size, max_size), Image.LANCZOS)
+
         # JPEG doesn't support alpha or palette modes
         if fmt == "JPEG" and img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
@@ -56,11 +60,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Convert demo TIFs to web formats")
     parser.add_argument("tif_folder", type=Path, help="Folder containing TIF files")
     parser.add_argument("--out", type=Path, default=None, help="Output folder (default: same as tif_folder)")
+    parser.add_argument("--max-size", type=int, default=1536, help="Max pixel dimension for longest side (default: 1536)")
     args = parser.parse_args()
 
     out = args.out or args.tif_folder
-    print(f"Converting TIFs in {args.tif_folder} -> {out}")
-    convert(args.tif_folder, out)
+    print(f"Converting TIFs in {args.tif_folder} -> {out} (max size: {args.max_size})")
+    convert(args.tif_folder, out, args.max_size)
     print("Done.")
 
 
