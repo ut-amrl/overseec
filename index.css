@@ -86,6 +86,8 @@ figure.image img {
 }
 
 .prompt-btn {
+  width: 100%;
+  box-sizing: border-box;
   font-size: var(--abstract-text-size);
   padding: 0.2rem 0.7rem;
   border-radius: 9999px;
@@ -96,6 +98,7 @@ figure.image img {
   font-family: inherit;
   line-height: 1.5;
   transition: background 0.15s, color 0.15s;
+  text-align: center;
 }
 
 .prompt-btn.is-active {
