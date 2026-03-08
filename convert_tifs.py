@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Convert GeoTIFF files in a demo folder to web-friendly formats.
+"""Convert all GeoTIFF files in a demo folder to web-friendly formats.
 
 Usage:
-    python convert_tifs.py <tif_folder> [--out <output_folder>]
+    python convert_tifs.py <tif_folder> [--out <output_folder>] [--max-size 1536]
 
-Expects the folder to contain:
-    rgb.tif         - RGB satellite image  -> rgb.jpg
-    costmap.tif     - Colored costmap      -> costmap.png
-    costmap_gray.tif - Grayscale costmap   -> costmap_gray.png
+Rules:
+    rgb.tif              -> rgb.jpg          (JPEG, quality 90)
+    <name>.tif           -> <name>.png       (PNG, color)
+                         -> <name>_gray.png  (PNG, grayscale — used by planner)
 
-If --out is not specified, outputs are written to the same folder as the TIFs.
+If --out is not specified, outputs are written into the same folder as the TIFs.
 """
 
 import argparse
@@ -22,42 +22,46 @@ except ImportError:
     sys.exit("Pillow is required: pip install Pillow")
 
 
+def convert_one(src: Path, out_folder: Path, max_size: int) -> None:
+    img = Image.open(src)
+
+    if max(img.size) > max_size:
+        img.thumbnail((max_size, max_size), Image.LANCZOS)
+
+    stem = src.stem  # filename without extension
+
+    if stem == "rgb":
+        # RGB satellite image -> JPEG
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        dst = out_folder / "rgb.jpg"
+        img.save(dst, "JPEG", quality=90)
+        print(f"  {src.name} ({src.stat().st_size // 1024} KB) -> {dst.name} ({dst.stat().st_size // 1024} KB)")
+    else:
+        # Costmap TIF -> color PNG + grayscale PNG
+        dst_color = out_folder / f"{stem}.png"
+        img.save(dst_color, "PNG")
+        print(f"  {src.name} ({src.stat().st_size // 1024} KB) -> {dst_color.name} ({dst_color.stat().st_size // 1024} KB)")
+
+        dst_gray = out_folder / f"{stem}_gray.png"
+        img.convert("L").save(dst_gray, "PNG")
+        print(f"  {src.name} -> {dst_gray.name} ({dst_gray.stat().st_size // 1024} KB)")
+
+
 def convert(tif_folder: Path, out_folder: Path, max_size: int = 1536) -> None:
     out_folder.mkdir(parents=True, exist_ok=True)
 
-    conversions = [
-        ("rgb.tif", "rgb.jpg", "JPEG", {"quality": 90}),
-        ("costmap.tif", "costmap.png", "PNG", {}),
-        ("costmap_gray.tif", "costmap_gray.png", "PNG", {}),
-    ]
+    tifs = sorted(tif_folder.glob("*.tif")) + sorted(tif_folder.glob("*.tiff"))
+    if not tifs:
+        print("  No TIF files found.")
+        return
 
-    for src_name, dst_name, fmt, save_kwargs in conversions:
-        src = tif_folder / src_name
-        dst = out_folder / dst_name
-
-        if not src.exists():
-            print(f"  SKIP  {src_name} (not found)")
-            continue
-
-        img = Image.open(src)
-
-        # Resize if larger than max_size on either dimension
-        if max(img.size) > max_size:
-            img.thumbnail((max_size, max_size), Image.LANCZOS)
-
-        # JPEG doesn't support alpha or palette modes
-        if fmt == "JPEG" and img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
-
-        img.save(dst, fmt, **save_kwargs)
-
-        src_kb = src.stat().st_size / 1024
-        dst_kb = dst.stat().st_size / 1024
-        print(f"  {src_name} ({src_kb:.0f} KB) -> {dst_name} ({dst_kb:.0f} KB)")
+    for src in tifs:
+        convert_one(src, out_folder, max_size)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert demo TIFs to web formats")
+    parser = argparse.ArgumentParser(description="Convert all TIFs in a demo folder to web formats")
     parser.add_argument("tif_folder", type=Path, help="Folder containing TIF files")
     parser.add_argument("--out", type=Path, default=None, help="Output folder (default: same as tif_folder)")
     parser.add_argument("--max-size", type=int, default=1536, help="Max pixel dimension for longest side (default: 1536)")

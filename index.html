@@ -446,11 +446,24 @@
         const wrapper = document.createElement("div");
         wrapper.className = "demo-item mb-6";
 
-        const title = document.createElement("h3");
-        title.className = "title is-5 mb-2";
-        title.textContent = demo.label;
-        wrapper.appendChild(title);
+        // Title row: label on left, Plan button on right
+        const titleRow = document.createElement("div");
+        titleRow.className = "demo-title-row";
 
+        const title = document.createElement("h3");
+        title.className = "title is-5";
+        title.textContent = demo.label;
+
+        const planBtn = document.createElement("button");
+        planBtn.className = "button is-small is-rounded is-dark demo-plan-btn";
+        planBtn.innerHTML = '<span class="icon is-small"><i class="fas fa-route"></i></span><span>Plan</span>';
+        planBtn.disabled = true;
+
+        titleRow.appendChild(title);
+        titleRow.appendChild(planBtn);
+        wrapper.appendChild(titleRow);
+
+        // Slider row
         const sliderRow = document.createElement("div");
         sliderRow.className = "demo-slider-row";
 
@@ -476,11 +489,6 @@
         const canvas = document.createElement("canvas");
         canvas.className = "demo-canvas";
 
-        const planBtn = document.createElement("button");
-        planBtn.className = "button is-normal is-rounded is-dark mt-2 demo-plan-btn";
-        planBtn.innerHTML = '<span class="icon"><i class="fas fa-route"></i></span><span>Plan</span>';
-        planBtn.disabled = true;
-
         const loadingMsg = document.createElement("p");
         loadingMsg.className = "has-text-grey is-size-7 mt-1";
         loadingMsg.textContent = "Loading...";
@@ -489,51 +497,77 @@
         imageBlock.className = "demo-image-block";
         imageBlock.appendChild(sliderRow);
         imageBlock.appendChild(canvas);
-        imageBlock.appendChild(planBtn);
         imageBlock.appendChild(loadingMsg);
         wrapper.appendChild(imageBlock);
 
         container.appendChild(wrapper);
 
         try {
-          // Load all three images in parallel
-          const [rgbImg, cmImg, cmGrayImg] = await Promise.all([
+          // Load RGB + all prompt costmaps in parallel
+          const [rgbImg, ...promptImgPairs] = await Promise.all([
             loadImage(demo.folder + "/" + demo.rgb),
-            loadImage(demo.folder + "/" + demo.costmap),
-            loadImage(demo.folder + "/" + demo.costmap_gray),
+            ...demo.prompts.flatMap(p => [
+              loadImage(demo.folder + "/" + p.costmap),
+              loadImage(demo.folder + "/" + p.costmap_gray),
+            ]),
           ]);
 
           const width = rgbImg.naturalWidth;
           const height = rgbImg.naturalHeight;
-
           canvas.width = width;
           canvas.height = height;
 
-          // Off-screen canvases for compositing
           const rgbOff = imgToCanvas(rgbImg);
-          const cmOff = imgToCanvas(cmImg);
 
-          // Extract grayscale costmap data for A* planner
-          const cmGrayCanvas = imgToCanvas(cmGrayImg);
-          const cmGrayData = cmGrayCanvas.getContext("2d").getImageData(0, 0, cmGrayCanvas.width, cmGrayCanvas.height).data;
-          const costmapScalar = new Float64Array(cmGrayCanvas.width * cmGrayCanvas.height);
-          for (let i = 0; i < costmapScalar.length; i++) {
-            costmapScalar[i] = cmGrayData[i * 4]; // red channel of grayscale PNG
-          }
+          // Build per-prompt data (cmOff canvas + scalar costmap for planner)
+          const promptData = demo.prompts.map((_, i) => {
+            const cmImg = promptImgPairs[i * 2];
+            const cmGrayImg = promptImgPairs[i * 2 + 1];
+            const cmOff = imgToCanvas(cmImg);
+            const cmGrayCanvas = imgToCanvas(cmGrayImg);
+            const raw = cmGrayCanvas.getContext("2d").getImageData(0, 0, cmGrayCanvas.width, cmGrayCanvas.height).data;
+            const costmapScalar = new Float64Array(cmGrayCanvas.width * cmGrayCanvas.height);
+            for (let j = 0; j < costmapScalar.length; j++) costmapScalar[j] = raw[j * 4];
+            return { cmOff, costmapScalar };
+          });
+
+          let activeIdx = 0;
 
           function draw(overlayOpacity) {
             const ctx = canvas.getContext("2d");
             ctx.drawImage(rgbOff, 0, 0);
             ctx.globalAlpha = overlayOpacity;
-            ctx.drawImage(cmOff, 0, 0);
+            ctx.drawImage(promptData[activeIdx].cmOff, 0, 0);
             ctx.globalAlpha = 1.0;
           }
 
           draw(0.5);
           loadingMsg.remove();
 
+          // Prompt buttons (shown below the canvas)
+          const promptRow = document.createElement("div");
+          promptRow.className = "prompt-btn-row";
+          demo.prompts.forEach((p, i) => {
+            const btn = document.createElement("button");
+            btn.className = "prompt-btn" + (i === 0 ? " is-active" : "");
+            const normalizedLabel = p.label
+              .trim()
+              .replace(/^["“”]+|["“”]+$/g, "");
+            btn.textContent = `“${normalizedLabel}”`;
+            btn.addEventListener("click", () => {
+              activeIdx = i;
+              promptRow.querySelectorAll(".prompt-btn").forEach((b, j) => {
+                b.classList.toggle("is-active", j === i);
+              });
+              draw(parseInt(slider.value) / 100);
+            });
+            promptRow.appendChild(btn);
+          });
+          imageBlock.appendChild(promptRow);
+
           planBtn.disabled = false;
           planBtn.addEventListener("click", () => {
+            const { cmOff, costmapScalar } = promptData[activeIdx];
             openPlanner(demo, rgbOff, cmOff, costmapScalar, width, height);
           });
 

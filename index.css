@@ -4,6 +4,10 @@ body {
     Segoe UI, Roboto, Helvetica, Arial, sans-serif;
 }
 
+:root {
+  --abstract-text-size: 0.9rem;
+}
+
 .publication-title {
   line-height: 1.15;
 }
@@ -34,7 +38,7 @@ figure.image img {
 }
 
 .abstract-overview .content {
-  font-size: 0.9rem;
+  font-size: var(--abstract-text-size);
 }
 
 @media (max-width: 768px) {
@@ -59,9 +63,48 @@ figure.image img {
   align-items: center;
 }
 
-.demo-item .title {
+.demo-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   width: 100%;
-  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.demo-title-row .title {
+  margin-bottom: 0 !important;
+}
+
+/* Prompt capsule buttons */
+.prompt-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  justify-content: center;
+  width: 100%;
+}
+
+.prompt-btn {
+  font-size: var(--abstract-text-size);
+  padding: 0.2rem 0.7rem;
+  border-radius: 9999px;
+  border: 1.5px solid #363636;
+  cursor: pointer;
+  background: #fff;
+  color: #363636;
+  font-family: inherit;
+  line-height: 1.5;
+  transition: background 0.15s, color 0.15s;
+}
+
+.prompt-btn.is-active {
+  background: #363636;
+  color: #fff;
+}
+
+.prompt-btn:hover:not(.is-active) {
+  background: #f0f0f0;
 }
 
 .demo-canvas {
