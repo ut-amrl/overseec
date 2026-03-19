@@ -1,3 +1,11 @@
+import multiprocessing as mp
+import sys
+if __name__ == "__main__":
+    try:
+        mp.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass
+
 import os
 import shutil
 from flask import Flask, request, jsonify, send_from_directory, send_file
@@ -186,6 +194,10 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
             use_negative_points=True, sam_model=params.get("sam_model"), sam_device=params.get("sam_device"),
             cmap_device=params.get("cmap_device"), semseg_device=params.get("semseg_device"),
         )
+        final_config.semseg_config.num_workers = 0
+        final_config.semseg_config.pin_memory = False
+        final_config.mask_refiner_config.num_workers = 0
+        final_config.mask_refiner_config.pin_memory = False
         final_config.reset()
         print("\n--- CONFIGURATION SET FOR PIPELINE RUN ---"); print(final_config); print("------------------------------------------\n")
         
@@ -245,6 +257,16 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
         traceback.print_exc()
         with open(os.path.join(RESULTS_FOLDER, f"{task_id}.error"), 'w') as f:
             f.write(str(e))
+    finally:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            # Delete model to free memory
+            if 'overseec_sat_2_mask' in locals():
+                del overseec_sat_2_mask
+        except:
+            pass
 
 # --- Get the absolute path of the script's directory ---
 _basedir = os.path.abspath(os.path.dirname(__file__))
@@ -1715,4 +1737,4 @@ def clear_temp_downloads():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5003, host='0.0.0.0')
+    app.run(debug=True, port=5002, host='0.0.0.0', threaded=True, processes=1)

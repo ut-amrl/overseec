@@ -20,7 +20,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    restart: unless-stopped
+    restart: no
 
   caddy:
     image: caddy:latest
@@ -35,7 +35,7 @@ services:
       - caddy_config:/config
     environment:
       - SITE_HOSTNAME=${SITE_HOSTNAME} # read from .env
-    restart: unless-stopped
+    restart: no
     depends_on:
       - app
 

@@ -13,14 +13,16 @@ class LLMZoo(Enum):
     GEMMA_2_27B_IT = "gemma-2-27b-it"
     GEMMA_3_27B_IT = "gemma-3-27b-it"
     QWEN_2_5_CODER_14B_INSTRUCT = "Qwen2.5-Coder-14B-Instruct"
+    DEEPSEEK_CODE_6_7B_INSTRUCT = "Deepseek-Coder-6.7B-Instruct"
 
     def get_llm_name(self):
         return {
             LLMZoo.GEMMA_2_27B_IT: "google/gemma-2-27b-it",
             LLMZoo.GEMMA_3_27B_IT: "google/gemma-3-27b-it",
             LLMZoo.QWEN_2_5_CODER_14B_INSTRUCT: "Qwen/Qwen2.5-Coder-14B-Instruct",
+            LLMZoo.DEEPSEEK_CODE_6_7B_INSTRUCT: "deepseek-ai/deepseek-coder-6.7b-instruct"
         }[LLMZoo(self.value)]
-    
+
 
 app = FastAPI()
 llm = None
