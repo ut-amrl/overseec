@@ -11,14 +11,18 @@ from enum import Enum
 
 class LLMZoo(Enum):
     GEMMA_2_27B_IT = "gemma-2-27b-it"
+    GEMMA_3_27B_IT = "gemma-3-27b-it"
     QWEN_2_5_CODER_14B_INSTRUCT = "Qwen2.5-Coder-14B-Instruct"
+    DEEPSEEK_CODE_6_7B_INSTRUCT = "Deepseek-Coder-6.7B-Instruct"
 
     def get_llm_name(self):
         return {
             LLMZoo.GEMMA_2_27B_IT: "google/gemma-2-27b-it",
+            LLMZoo.GEMMA_3_27B_IT: "google/gemma-3-27b-it",
             LLMZoo.QWEN_2_5_CODER_14B_INSTRUCT: "Qwen/Qwen2.5-Coder-14B-Instruct",
+            LLMZoo.DEEPSEEK_CODE_6_7B_INSTRUCT: "deepseek-ai/deepseek-coder-6.7b-instruct"
         }[LLMZoo(self.value)]
-    
+
 
 app = FastAPI()
 llm = None
@@ -43,12 +47,12 @@ async def generate_response(request: InferenceRequest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--cuda", type=str, default="7")
+    parser.add_argument("--cuda", type=str, default="0")
     
     parser.add_argument("--model", type=LLMZoo, default=None, choices=list(LLMZoo), help="The model to use. If not provided, an interactive menu will be shown.")
         
     parser.add_argument("--host", type=str, default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=8057)
     args = parser.parse_args()
 
     if args.model is None:
@@ -80,6 +84,8 @@ def main():
         tensor_parallel_size=max(1, num_gpus),
         dtype="bfloat16" if torch.cuda.is_bf16_supported() else "float16",
         trust_remote_code=True,
+        max_model_len=8192,  # Cap context length to fit in available KV cache memory
+        gpu_memory_utilization=0.90,  # Use more GPU memory for KV cache
     )
 
     uvicorn.run(app, host=args.host, port=args.port)

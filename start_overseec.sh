@@ -72,7 +72,7 @@ else
 fi
 
 # <-- Appended the new device argument to the command
-tmux send-keys -t overseec "cd $ROOT_DIR/modules/llm && python3 vllm_server.py $LLM_MODEL_ARG $VLLM_DEVICE_ARG" C-m
+tmux send-keys -t overseec "cd $ROOT_DIR/modules/llm && VLLM_ATTENTION_BACKEND=TRITON_ATTN_VLLM_V1 python3 vllm_server.py $LLM_MODEL_ARG $VLLM_DEVICE_ARG" C-m
 sleep 1
 
 # Pane 2: Frontend App

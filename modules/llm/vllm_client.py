@@ -2,7 +2,7 @@ import ast
 import requests
 import textwrap
 
-SERVER_URL = "http://0.0.0.0:8000/generate"  # Update if running on a different host
+SERVER_URL = "http://0.0.0.0:8057/generate"  # Update if running on a different host
 
 def extract_dict_and_write_code(text: str, filepath: str):
     # Extract dictionary
@@ -39,19 +39,19 @@ def wrap_prompt(prompt: str) -> str:
 #         you have 3 tasks:
 
 #         TASK 1 : class segregation
-#             Thresholds: 
-#             TL = 0.4, 
+#             Thresholds:
+#             TL = 0.4,
 #             TA = 0.8
 
-#             From this prompt, extract geographic classes, semantic classes and entities (e.g., road, grass, tree, building, water, trails, bushes, river, etc.). 
+#             From this prompt, extract geographic classes, semantic classes and entities (e.g., road, grass, tree, building, water, trails, bushes, river, etc.).
 #             It can be an areal feature, a linear feature, an object, or a subset of a larger class.
 
 #             Use descriptive names if adjectives are provided (e.g., "big trees", "curved roads").
 
 #             Do not include specific regions like "center of x", "side of y".
-            
-            
-#             Always include the default classes: 
+
+
+#             Always include the default classes:
 #             "road", "trail or footway", "water", "grass", "building", and "tree".
 
 #             For every class, determine if it is:
@@ -59,7 +59,7 @@ def wrap_prompt(prompt: str) -> str:
 #             - ‘areal/blob-like’ (e.g., grass, forest, buildings): assign TA
 
 #             Output only the dictionary mapping class names to a list of assigned [threshold, <RGB color>], strictly between the <DICT></DICT> markers.
-            
+
 #             example "remain on the outskirts of the forest" [we did not add `outskirt of forest` as it is a specific region, but we added `forest`]
 
 #             <DICT>{
@@ -75,14 +75,14 @@ def wrap_prompt(prompt: str) -> str:
 
 #             }</DICT>
 
-#         TASK 2 : 
+#         TASK 2 :
 #         Write down all the heirarchical relationships in the form of a list of tuples. Each tuple should be (parent, child).
 #         parent is a broad class, child is a more specific instance. Make sure you use only these heirarchy in the code part.
 #         <HIER>
 #             [('water', 'pond'),
 #              ('grass', 'baseball field')]
 #         </HIER>
-        
+
 #         TASK 3 :
 
 #         Inputs
@@ -204,13 +204,13 @@ def wrap_prompt(prompt: str) -> str:
 
 #             road_mask = road_logit > t_l
 #             trail_mask = trail_logit > t_l
-#             grass_mask = grass_logit > t_a  
+#             grass_mask = grass_logit > t_a
 #             buildings_mask = buildings_logit > t_a
 #             trees_mask = trees_logit > t_a
 #             water_mask = water_logit > t_a
 #             baseball_field_mask = baseball_field_logit > t_a
 #             pond_mask = pond_logit > t_a
-            
+
 
 
 
@@ -287,19 +287,19 @@ def overseec_query_llm(user_prompt, code_filepath):
         you have 3 tasks:
 
         TASK 1 : class segregation
-            Thresholds: 
-            TL = 0.4, 
+            Thresholds:
+            TL = 0.4,
             TA = 0.8
 
-            From this prompt, extract geographic classes, semantic classes and entities (e.g., road, grass, tree, building, water, trails, bushes, river, etc.). 
+            From this prompt, extract geographic classes, semantic classes and entities (e.g., road, grass, tree, building, water, trails, bushes, river, etc.).
             It can be an areal feature, a linear feature, an object, or a subset of a larger class.
 
             Use descriptive names if adjectives are provided (e.g., "big trees", "curved roads").
 
             Do not include specific regions like "center of x", "side of y".
-            
-            
-            Always include the default classes: 
+
+
+            Always include the default classes:
             "road", "trail or footway", "water", "grass", "building", and "tree".
 
             For every class, determine if it is:
@@ -307,7 +307,7 @@ def overseec_query_llm(user_prompt, code_filepath):
             - ‘areal/blob-like’ (e.g., grass, forest, buildings): assign TA
 
             Output only the dictionary mapping class names to a list of assigned [threshold, <RGB color>], strictly between the <DICT></DICT> markers.
-            
+
             example "remain on the outskirts of the forest" [we did not add `outskirt of forest` as it is a specific region, but we added `forest`]
 
             <DICT>{{
@@ -323,14 +323,14 @@ def overseec_query_llm(user_prompt, code_filepath):
 
             }}</DICT>
 
-        TASK 2 : 
+        TASK 2 :
         Write down all the heirarchical relationships in the form of a list of tuples. Each tuple should be (parent, child).
         parent is a broad class, child is a more specific instance. Make sure you use only these heirarchy in the code part.
         <HEIR>
             [('water', 'pond'),
              ('grass', 'baseball field')]
         </HEIR>
-        
+
         TASK 3 :
 
         Inputs
@@ -428,7 +428,7 @@ def convert_masks2torch(mask_dict, device):
     for key in mask_dict:
         if isinstance(mask_dict[key], np.ndarray):
             mask_dict[key] = torch.from_numpy(mask_dict[key]).to(device)
-    return mask_dict  
+    return mask_dict
 
 
 def generate_costmap(mask_dict, t_dict={{"t_l":0.4, "t_a":0.6}}, device="cpu"):
@@ -449,13 +449,13 @@ def generate_costmap(mask_dict, t_dict={{"t_l":0.4, "t_a":0.6}}, device="cpu"):
 
     road_mask = road_logit > t_l
     trail_mask = trail_logit > t_l
-    grass_mask = grass_logit > t_a  
+    grass_mask = grass_logit > t_a
     buildings_mask = buildings_logit > t_a
     trees_mask = trees_logit > t_a
     water_mask = water_logit > t_a
     baseball_field_mask = baseball_field_logit > t_a
     pond_mask = pond_logit > t_a
-    
+
 
 
 
@@ -500,15 +500,16 @@ def generate_costmap(mask_dict, t_dict={{"t_l":0.4, "t_a":0.6}}, device="cpu"):
         </USER_PROMPT>
 
         default classes : "road", "trail or footway", "water", "grass", "building", and "tree".
-        use the classes only specified by the user between the tags <USER_PROMPT> </USER_PROMPT>. 
+        use the classes only specified by the user between the tags <USER_PROMPT> </USER_PROMPT>.
         if default classes are not specified, use the default classes and their values as mentioned above.
 
+        PLEASE USE THE DEFAULT CLASSES AND THEIR VALUES IF THEY ARE NOT SPECIFIED IN THE USER PROMPT.
         for task 1 output should be between the <DICT> and </DICT> markers. Recheck if any classes it outside the classes specifed in the <USER_PROMPT> </USER_PROMPT> and default classes.
         for task 2 infer the hierarchies and list them in <HIER> and </HIER> markers. Use these in task 3.
         for task 3 output should be between the <CODE> and </CODE> markers, output should be python file only with the function and the imports,
         for task 4 explain the costfunction and tell me whether the generated cost function is correct or not. explain if the cost function actually looked into heirrchy and correctly treat it also make sure you used the default classes and their values as mentioned above.
         no explanations, no quotes, no extra text.
-        
+
         """)
 
     # I also had to fix your f-string by doubling the curly braces {{ }} inside the prompt

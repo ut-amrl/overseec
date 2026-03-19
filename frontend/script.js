@@ -2,12 +2,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- DOM Element References ---
     const promptInput = document.getElementById('prompt-input'),
         processPromptBtn = document.getElementById('process-prompt-btn'),
-        tiffSelect = document.getElementById('tiff-select'),
+        selectedTiffNameEl = document.getElementById('selected-tiff-name'),
         classListContainer = document.getElementById('class-list'),
         newClassInput = document.getElementById('new-class-input'),
         addClassBtn = document.getElementById('add-class-btn'),
         runPipelineBtn = document.getElementById('run-pipeline-btn'),
         generateCostmapBtn = document.getElementById('generate-costmap-btn'),
+        // [NEW]
+        downloadPlanBtn = document.getElementById('download-plan-btn'),
+        costmapDeviceSelect = document.getElementById('costmap-device'),
+        saveMasksBtn = document.getElementById('save-masks-btn'),
+        saveCostmapImgBtn = document.getElementById('save-costmap-img-btn'),
+        browseCostmapsBtn = document.getElementById('browse-costmaps-btn'),
+        savedGoalsList = document.getElementById('saved-goals-list'),
+        saveCurrentGoalBtn = document.getElementById('save-current-goal-btn'),
         loadServerMasksBtn = document.getElementById('load-server-masks-btn'),
         updateParamsBtn = document.getElementById('update-params-btn'),
         confirmClassesBtn = document.getElementById('confirm-classes-btn'),
@@ -15,7 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsArea = document.getElementById('results-area'),
         resultsMasksContainer = document.getElementById('results-masks-container'),
         costmapDisplayArea = document.getElementById('costmap-display-area'),
-        costmapImageContainer = document.getElementById('costmap-image-container'),
+        costmapOverlayBaseImg = document.getElementById('costmap-overlay-base'),
+        costmapOverlayImg = document.getElementById('costmap-overlay-img'),
+        costmapOverlaySlider = document.getElementById('costmap-overlay-slider'),
         resultsPlaceholder = document.getElementById('results-placeholder'),
         loader = document.getElementById('loader'),
         cancelPipelineBtn = document.getElementById('cancel-pipeline-btn');
@@ -23,6 +33,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const paramInputs = {
         areal_threshold: document.getElementById('areal-threshold'),
         linear_threshold: document.getElementById('linear-threshold'),
+        refiner_areal_threshold: document.getElementById('refiner-areal-threshold'),
+        refiner_linear_threshold: document.getElementById('refiner-linear-threshold'),
         model_name: document.getElementById('model-name'),
         mask_refiner_name: document.getElementById('mask-refiner-name'),
         sam_model: document.getElementById('sam-model'),
@@ -46,7 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showConsoleBtn = document.getElementById('show-console-btn'),
         closeConsoleBtn = document.getElementById('close-console-btn'),
         consoleOutput = document.getElementById('console-output');
-        
+
     const costmapModal = document.getElementById('costmap-modal'),
         showCostmapBtn = document.getElementById('show-costmap-btn'),
         closeCostmapBtn = document.getElementById('close-costmap-btn'),
@@ -59,7 +71,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const serverMasksModal = document.getElementById('server-masks-modal'),
         closeServerMasksBtn = document.getElementById('close-server-masks-btn'),
         serverMasksList = document.getElementById('server-masks-list'),
-        loadSelectedMasksBtn = document.getElementById('load-selected-masks-btn');
+        loadSelectedMasksBtn = document.getElementById('load-selected-masks-btn'),
+        browserUpBtn = document.getElementById('browser-up-btn'),
+        browserBreadcrumb = document.getElementById('browser-breadcrumb'),
+        browserModalTitle = document.getElementById('browser-modal-title'),
+        browserSearchArea = document.getElementById('browser-search-area'),
+        browserSearchInput = document.getElementById('browser-search-input'),
+        browserSearchResults = document.getElementById('browser-search-results'),
+        browseTiffsBtn = document.getElementById('browse-tiffs-btn');
 
     const worldMapModal = document.getElementById('world-map-modal'),
         showWorldMapBtn = document.getElementById('show-world-map-btn'),
@@ -75,7 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const imageViewerModal = document.getElementById('image-viewer-modal'),
         imageViewerContent = document.getElementById('image-viewer-content'),
         closeImageViewerBtn = document.getElementById('close-image-viewer-btn');
-    
+
     const classDetailModal = document.getElementById('class-detail-modal'),
         closeClassDetailBtn = document.getElementById('close-class-detail-btn'),
         classDetailTitle = document.getElementById('class-detail-title'),
@@ -93,6 +112,8 @@ document.addEventListener('DOMContentLoaded', () => {
         closePlannerBtn = document.getElementById('close-planner-btn'),
         plannerImgBg = document.getElementById('planner-img-bg'),
         plannerCanvas = document.getElementById('planner-canvas'),
+        plannerImgOverlay = document.getElementById('planner-img-overlay'),
+        plannerOverlaySlider = document.getElementById('planner-overlay-slider'),
         selectStartBtn = document.getElementById('select-start-btn'),
         selectEndBtn = document.getElementById('select-end-btn'),
         planPathBtn = document.getElementById('plan-path-btn'),
@@ -100,17 +121,28 @@ document.addEventListener('DOMContentLoaded', () => {
         plannerStatus = document.getElementById('planner-status'),
         plannerCoords = document.getElementById('planner-coords');
 
+    const downloadZipNameInput = document.getElementById('download-zip-name');
+    const clearTempDownloadsBtn = document.getElementById('clear-temp-downloads-btn');
+
     const API_BASE_URL = '';
     let currentClasses = [], worldMap, drawnItems, capturedBounds, progressInterval, gpuPollInterval, consolePollInterval;
     let panzoomState = { scale: 1, translateX: 0, translateY: 0, isPanning: false, startX: 0, startY: 0 };
-    let currentResultData = null; 
-    let pipelinePollInterval = null; 
+    let currentResultData = null;
+    let pipelinePollInterval = null;
     let currentTaskId = null;
     let currentCostmapUrl = null;
+    let currentCostmapOverlayUrl = null;
+    let currentCostmapOverlayFallbackUrl = null;
     let plannerState = {};
     let plannerResizeObserver = null;
     let selectedRunId = null;
     let lastKnownCoords = null;
+    let currentTiffFolder = null;
+    let browserCurrentPath = '';  // For file browser navigation
+    let browserSelectedPath = null;  // Selected mask folder path
+    let browserMode = 'masks';  // 'tiff' or 'masks'
+    let searchDebounceTimer = null;
+    let selectedTiffName = null;  // Currently selected TIFF file/folder name
 
     // --- Helper Functions ---
     function rgbToHex(rgbString) {
@@ -127,12 +159,96 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hexString);
         return result ? `rgb(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)})` : 'rgb(0, 0, 0)';
     }
-    
+
     function getRandomRgbColor() {
         const r = Math.floor(Math.random() * 256);
         const g = Math.floor(Math.random() * 256);
         const b = Math.floor(Math.random() * 256);
         return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function getCurrentTiffName() {
+        return currentTiffFolder || selectedTiffName || '';
+    }
+
+    function getPreviewUrlForTiff(tiffName) {
+        if (!tiffName) return '';
+        return `${API_BASE_URL}/results/${tiffName}/preview.png`;
+    }
+
+    function deriveOverlayAndBwUrls(url) {
+        // url is a /results/... path (usually .png)
+        if (!url) return { overlayUrl: null, overlayFallbackUrl: null, bwUrl: null };
+        const overlayFallbackUrl = url;
+        let bwUrl = url;
+        if (url.endsWith('costmap.png')) {
+            bwUrl = url.replace(/costmap\.png$/, 'costmap_bw.png');
+        } else if (url.endsWith('costmap_bw.png')) {
+            bwUrl = url;
+        } else if (url.endsWith('_bw.png')) {
+            bwUrl = url;
+        } else if (url.endsWith('.png')) {
+            // Assume it's an overlay; try sibling *_bw.png for planning
+            bwUrl = url.replace(/\.png$/, '_bw.png');
+        }
+        // Prefer BW image for overlays by default; fall back to whatever was clicked.
+        return { overlayUrl: bwUrl, overlayFallbackUrl, bwUrl };
+    }
+
+    function setImgOpacityFromSlider(imgEl, sliderEl) {
+        if (!imgEl || !sliderEl) return;
+        imgEl.style.opacity = (sliderEl.value / 100).toString();
+    }
+
+    function updateCostmapOverlayUI() {
+        if (!costmapOverlayBaseImg || !costmapOverlayImg) return;
+
+        const tiffName = getCurrentTiffName();
+        const previewUrl = getPreviewUrlForTiff(tiffName);
+        const rgbPreviewImg = tiffPreviewContainer.querySelector('img');
+        costmapOverlayBaseImg.src = (rgbPreviewImg ? rgbPreviewImg.src : '') || previewUrl;
+
+        if (currentCostmapOverlayUrl) {
+            const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
+            const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+            costmapOverlayImg.onerror = () => {
+                if (fallback && costmapOverlayImg.src !== fallback) {
+                    costmapOverlayImg.onerror = null;
+                    costmapOverlayImg.src = fallback;
+                }
+            };
+            costmapOverlayImg.src = primary;
+            costmapOverlayImg.classList.remove('hidden');
+        } else {
+            costmapOverlayImg.src = '';
+            costmapOverlayImg.classList.add('hidden');
+        }
+
+        if (costmapOverlaySlider) {
+            setImgOpacityFromSlider(costmapOverlayImg, costmapOverlaySlider);
+        }
+
+        // If planner is open, also update its overlay image.
+        if (plannerModal && !plannerModal.classList.contains('hidden') && plannerImgOverlay) {
+            if (currentCostmapOverlayUrl) {
+                const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
+                const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+                plannerImgOverlay.onerror = () => {
+                    if (fallback && plannerImgOverlay.src !== fallback) {
+                        plannerImgOverlay.onerror = null;
+                        plannerImgOverlay.src = fallback;
+                    }
+                };
+                plannerImgOverlay.src = primary;
+                plannerImgOverlay.classList.remove('hidden');
+            } else {
+                plannerImgOverlay.src = '';
+                plannerImgOverlay.classList.add('hidden');
+            }
+            if (plannerOverlaySlider) {
+                setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+            }
+        }
     }
 
     // --- Core Functions ---
@@ -150,16 +266,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function fetchTiffFiles() {
+        // Just ensure results folder exists - TIFFs are now selected via Browse
         try {
-            const response = await fetch(`${API_BASE_URL}/api/get-tiff-files`);
-            const data = await response.json();
-            const currentlySelected = tiffSelect.value;
-            tiffSelect.innerHTML = '<option value="">-- Select a file --</option>';
-            data.files.forEach(file => tiffSelect.add(new Option(file, file)));
-            if (data.files.includes(currentlySelected)) tiffSelect.value = currentlySelected;
+            await fetch(`${API_BASE_URL}/api/get-tiff-files`);
         } catch (error) { console.error("Failed to fetch TIFF files:", error); }
     }
-    
+
     function updateDeviceDropdowns(gpuCount) {
         const dropdowns = [paramInputs.cmap_device, paramInputs.sam_device, paramInputs.semseg_device];
         dropdowns.forEach(dd => {
@@ -181,12 +293,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const classItem = document.createElement('div');
                 classItem.className = 'class-item p-3 bg-gray-100 rounded-lg border w-full';
                 classItem.dataset.index = index;
-                
+
                 let thresholdValue, isReadOnly = true;
                 if (classObj.type === 'Areal') thresholdValue = paramInputs.areal_threshold.value;
                 else if (classObj.type === 'Linear') thresholdValue = paramInputs.linear_threshold.value;
                 else { thresholdValue = classObj.threshold; isReadOnly = false; }
-                
+
                 const hexColor = rgbToHex(classObj.color);
 
                 classItem.innerHTML = `
@@ -211,22 +323,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateRunButtonState() {
-        const hasTiff = !!tiffSelect.value;
+        const hasTiff = !!selectedTiffName;
         const hasClasses = currentClasses.length > 0;
         const hasResults = !!currentResultData;
 
-        loadServerMasksBtn.disabled = !hasTiff;
         runPipelineBtn.disabled = !(hasTiff && hasClasses);
         generateCostmapBtn.disabled = !hasResults;
     }
 
     function displayResults(data) {
-        currentResultData = data; 
+        currentResultData = data;
+        currentTiffFolder = data.tiff_folder || null;
         resultsArea.classList.remove('hidden');
         resultsPlaceholder.classList.add('hidden');
         costmapDisplayArea.classList.add('hidden');
-        costmapImageContainer.innerHTML = '';
+        if (costmapOverlayBaseImg) costmapOverlayBaseImg.src = '';
+        if (costmapOverlayImg) costmapOverlayImg.src = '';
         resultsMasksContainer.innerHTML = '';
+
+        // Enable Save Masks button if we have a tiff_folder
+        if (currentTiffFolder) {
+            saveMasksBtn.disabled = false;
+        }
 
         const masksToDisplay = data.refined_masks || data.local_masks;
 
@@ -252,7 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleProcessPrompt() {
         const prompt = promptInput.value.trim();
         if (!prompt) return alert("Please enter a prompt first.");
-        
+
         processPromptBtn.textContent = 'Processing...';
         processPromptBtn.disabled = true;
         try {
@@ -292,12 +410,12 @@ document.addEventListener('DOMContentLoaded', () => {
             alert(`Class "${newClassName}" already exists.`);
         }
     }
-    
+
     function handleClassListChange(e) {
         const classItem = e.target.closest('.class-item');
         if (!classItem) return;
         const index = parseInt(classItem.dataset.index, 10);
-        
+
         if (e.target.classList.contains('remove-class-btn')) {
             currentClasses.splice(index, 1);
             renderClasses();
@@ -313,14 +431,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         classObj.color = hexToRgb(colorInput.value);
         classObj.type = typeSelect.value;
-        
+
         let isReadOnly = true;
         let newThreshold;
 
         if (classObj.type === 'Areal') newThreshold = paramInputs.areal_threshold.value;
         else if (classObj.type === 'Linear') newThreshold = paramInputs.linear_threshold.value;
         else { isReadOnly = false; newThreshold = thresholdInput.value; }
-        
+
         classObj.threshold = newThreshold;
         thresholdInput.value = newThreshold;
         thresholdInput.readOnly = isReadOnly;
@@ -328,28 +446,38 @@ document.addEventListener('DOMContentLoaded', () => {
         thresholdInput.classList.toggle('bg-white', !isReadOnly);
     }
 
-    async function handleTiffSelect(e) {
-        const filename = e.target.value;
-        updateRunButtonState();
-        if (!filename) {
-            tiffPreviewContainer.innerHTML = '<p class="text-gray-500">Select a TIFF file to see a preview.</p>';
-            loadServerMasksBtn.disabled = true;
-            return;
+    function setSelectedTiff(name) {
+        selectedTiffName = name;
+        if (name) {
+            selectedTiffNameEl.textContent = name;
+            selectedTiffNameEl.classList.remove('text-gray-500', 'italic');
+            selectedTiffNameEl.classList.add('text-gray-800');
+        } else {
+            selectedTiffNameEl.textContent = 'No TIFF selected';
+            selectedTiffNameEl.classList.add('text-gray-500', 'italic');
+            selectedTiffNameEl.classList.remove('text-gray-800');
         }
-        loadServerMasksBtn.disabled = false;
-
-        tiffPreviewContainer.innerHTML = `<div class="flex items-center"><div class="loader !w-6 !h-6"></div><p class="ml-3 text-gray-600">Generating preview...</p></div>`;
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/generate-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename }) });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Failed to generate preview.');
-            tiffPreviewContainer.innerHTML = `<img src="${API_BASE_URL}${data.preview_url}" alt="Preview of ${filename}" class="max-w-full max-h-[400px] rounded-lg shadow-md">`;
-        } catch (error) {
-            console.error("Preview generation error:", error);
-            tiffPreviewContainer.innerHTML = `<p class="text-red-500">Error: ${error.message}</p>`;
+        updateRunButtonState();
+        // Generate preview if selected
+        if (name) {
+            tiffPreviewContainer.innerHTML = `<div class="flex items-center"><div class="loader !w-6 !h-6"></div><p class="ml-3 text-gray-600">Generating preview...</p></div>`;
+            fetch(`${API_BASE_URL}/api/generate-preview`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename: name }) })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.preview_url) {
+                        tiffPreviewContainer.innerHTML = `<img src="${API_BASE_URL}${data.preview_url}" alt="Preview of ${name}" class="max-w-full max-h-[400px] rounded-lg shadow-md">`;
+                    } else {
+                        tiffPreviewContainer.innerHTML = `<p class="text-red-500">Error: ${data.error || 'Failed to generate preview.'}</p>`;
+                    }
+                })
+                .catch(err => {
+                    tiffPreviewContainer.innerHTML = `<p class="text-red-500">Error: ${err.message}</p>`;
+                });
+        } else {
+            tiffPreviewContainer.innerHTML = '<p class="text-gray-500">Select a TIFF file to see a preview.</p>';
         }
     }
-    
+
     function collectFinalConfig() {
         const classesToSend = currentClasses.map(classObj => {
             let finalThreshold = classObj.threshold;
@@ -357,9 +485,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (classObj.type === 'Linear') finalThreshold = paramInputs.linear_threshold.value;
             return { name: classObj.name, type: classObj.type, threshold: finalThreshold, color: classObj.color };
         });
-        
+
         const config = {
-            tiff_file: tiffSelect.value,
+            tiff_file: selectedTiffName || '',
             classes: classesToSend,
             params: {}
         };
@@ -384,7 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
         costmapDisplayArea.classList.add('hidden');
         runPipelineBtn.disabled = true;
         generateCostmapBtn.disabled = true;
-        
+
         try {
             const response = await fetch(`${API_BASE_URL}/api/run-pipeline`, {
                 method: 'POST',
@@ -393,7 +521,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to start pipeline.');
-            
+
             currentTaskId = data.task_id;
             pipelinePollInterval = setInterval(() => checkPipelineStatus(currentTaskId), 2500);
 
@@ -417,7 +545,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`${API_BASE_URL}/api/pipeline-status/${taskId}`);
             const data = await response.json();
-            
+
             if (data.status === 'completed') {
                 stopPolling();
                 displayResults(data.results);
@@ -443,7 +571,7 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log(`Requesting cancellation for task: ${currentTaskId}`);
         try {
             await fetch(`${API_BASE_URL}/api/cancel-pipeline/${currentTaskId}`, { method: 'POST' });
-        } catch(error) {
+        } catch (error) {
             console.error("Failed to send cancel request:", error);
             alert("Could not send cancel request to the server.");
         }
@@ -464,15 +592,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`${API_BASE_URL}/api/generate-costmap`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ refined_masks: masks_to_use })
+                body: JSON.stringify({
+                    refined_masks: masks_to_use,
+                    tiff_folder: currentTiffFolder || selectedTiffName || '',
+                    device: document.getElementById('costmap-device').value,
+                    t_dict: {
+                        t_a: parseFloat(paramInputs.refiner_areal_threshold.value),
+                        t_l: parseFloat(paramInputs.refiner_linear_threshold.value)
+                    }
+                })
             });
 
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || "Failed to generate costmap.");
-            
+
             currentCostmapUrl = data.costmap_url;
-            costmapImageContainer.innerHTML = `<img src="${API_BASE_URL}${data.costmap_url}" alt="Final Costmap" class="max-w-full max-h-[400px] rounded-lg shadow-md">`;
+            currentCostmapOverlayUrl = data.costmap_url; // overlay uses BW by default
+            currentCostmapOverlayFallbackUrl = data.colored_url || null;
             costmapDisplayArea.classList.remove('hidden');
+            updateCostmapOverlayUI();
+            saveCostmapImgBtn.disabled = false;
+
+            // Load saved goals for this TIFF
+            loadSavedGoals(currentTiffFolder || selectedTiffName);
 
         } catch (error) {
             alert(`Costmap Generation Error: ${error.message}`);
@@ -481,23 +623,23 @@ document.addEventListener('DOMContentLoaded', () => {
             generateCostmapBtn.textContent = 'Generate Costmap';
         }
     }
-    
+
     async function updateGpuStatus() {
         try {
             const response = await fetch(`${API_BASE_URL}/api/get-gpu-status`);
             if (!response.ok) throw new Error("Could not fetch GPU status.");
             const data = await response.json();
-            
+
             gpuStatusContainer.innerHTML = '';
             gpuStatusContainer.className = 'grid grid-cols-1 md:grid-cols-2 gap-4';
 
-            if(data.source.startsWith("mock")) {
-                 const mockMessage = document.createElement('p');
-                 mockMessage.className = "text-center text-amber-600 bg-amber-100 p-3 rounded-md col-span-full";
-                 mockMessage.textContent = "Note: Displaying mock data. Install 'pynvml' on the server for live stats.";
-                 gpuStatusContainer.appendChild(mockMessage);
+            if (data.source.startsWith("mock")) {
+                const mockMessage = document.createElement('p');
+                mockMessage.className = "text-center text-amber-600 bg-amber-100 p-3 rounded-md col-span-full";
+                mockMessage.textContent = "Note: Displaying mock data. Install 'pynvml' on the server for live stats.";
+                gpuStatusContainer.appendChild(mockMessage);
             }
-            
+
             updateDeviceDropdowns(data.gpus.length);
 
             data.gpus.forEach(gpu => {
@@ -518,7 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
         } catch (error) {
-             gpuStatusContainer.innerHTML = `<p class="text-red-500 col-span-full">${error.message}</p>`;
+            gpuStatusContainer.innerHTML = `<p class="text-red-500 col-span-full">${error.message}</p>`;
         }
     }
 
@@ -575,6 +717,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             defaultCostmapCode.textContent = data.default;
             generatedCostmapCode.textContent = data.generated;
+            defaultCostmapCode.dataset.raw = data.default;
+            generatedCostmapCode.dataset.raw = data.generated;
 
             // Apply syntax highlighting first
             hljs.highlightElement(defaultCostmapCode);
@@ -588,10 +732,10 @@ document.addEventListener('DOMContentLoaded', () => {
             generatedCostmapCode.classList.remove('ring-2', 'ring-blue-500');
             saveCostmapBtn.disabled = true;
             editCostmapBtn.disabled = false;
-            
+
             costmapModal.classList.remove('hidden');
             costmapModal.classList.add('flex');
-        } catch(error) {
+        } catch (error) {
             alert(`Error: ${error.message}`);
         }
     }
@@ -602,6 +746,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleEditCostmap() {
+        const rawCode = generatedCostmapCode.dataset.raw || generatedCostmapCode.textContent;
+        generatedCostmapCode.textContent = rawCode;
         generatedCostmapCode.setAttribute('contenteditable', 'true');
         generatedCostmapCode.classList.add('ring-2', 'ring-blue-500');
         generatedCostmapCode.focus();
@@ -609,31 +755,33 @@ document.addEventListener('DOMContentLoaded', () => {
         editCostmapBtn.disabled = true;
     }
 
-async function handleSaveCostmap() {
-    // Use our new, more reliable function to get the code
-    const newCode = getTextFromEditable(generatedCostmapCode);
+    async function handleSaveCostmapCode() {
+        // Use our new, more reliable function to get the code
+        const newCode = getTextFromEditable(generatedCostmapCode);
 
-    saveCostmapBtn.textContent = 'Saving...';
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/save-costmap-function`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: newCode })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Failed to save.");
-        
-        alert(data.message);
-        generatedCostmapCode.setAttribute('contenteditable', 'false');
-        generatedCostmapCode.classList.remove('ring-2', 'ring-blue-500');
-        saveCostmapBtn.disabled = true;
-        editCostmapBtn.disabled = false;
-        
-        // Re-apply highlighting and line numbers after saving
-        hljs.highlightElement(generatedCostmapCode);
-        hljs.lineNumbersBlock(generatedCostmapCode);
+        saveCostmapBtn.textContent = 'Saving...';
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/save-costmap-function`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: newCode })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Failed to save.");
 
-        } catch(error) {
+            alert(data.message);
+            generatedCostmapCode.setAttribute('contenteditable', 'false');
+            generatedCostmapCode.classList.remove('ring-2', 'ring-blue-500');
+            saveCostmapBtn.disabled = true;
+            editCostmapBtn.disabled = false;
+
+            // Re-apply highlighting and line numbers after saving
+            generatedCostmapCode.textContent = newCode;
+            generatedCostmapCode.dataset.raw = newCode;
+            hljs.highlightElement(generatedCostmapCode);
+            hljs.lineNumbersBlock(generatedCostmapCode);
+
+        } catch (error) {
             alert(`Save failed: ${error.message}`);
         } finally {
             saveCostmapBtn.textContent = 'Save';
@@ -645,8 +793,9 @@ async function handleSaveCostmap() {
         let html = element.innerHTML;
         // Convert common contenteditable newlines (<br> and <div>) to the \n character
         html = html.replace(/<br\s*\/?>/gi, "\n");
-        html = html.replace(/<div>/gi, "\n").replace(/<\/div>/gi, "");
-        
+        html = html.replace(/<div[^>]*>/gi, "\n").replace(/<\/div>/gi, "");
+        html = html.replace(/<p[^>]*>/gi, "\n").replace(/<\/p>/gi, "");
+
         // Use a temporary element to strip any remaining HTML tags (like <span> from highlighting)
         // and decode HTML entities (like &nbsp;) into actual spaces.
         const tempEl = document.createElement('div');
@@ -654,7 +803,7 @@ async function handleSaveCostmap() {
         let text = tempEl.textContent || tempEl.innerText || "";
 
         // Finally, remove any trailing newlines that might have been added
-        return text.trimEnd();
+        return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trimEnd();
     }
 
     async function handleRestoreCostmap() {
@@ -678,6 +827,7 @@ async function handleSaveCostmap() {
 
             // 3. Update the UI with the new content
             generatedCostmapCode.textContent = contentData.generated;
+            generatedCostmapCode.dataset.raw = contentData.generated;
             hljs.highlightElement(generatedCostmapCode);
 
             // 4. Reset the editor state
@@ -695,7 +845,7 @@ async function handleSaveCostmap() {
             restoreCostmapBtn.disabled = false;
         }
     }
-    
+
     function handleToggleButtons(e) {
         const button = e.target.closest('button');
         if (!button) return;
@@ -705,11 +855,11 @@ async function handleSaveCostmap() {
     }
 
     function initializeWorldMap() {
-        if (worldMap) return; 
+        if (worldMap) return;
 
         // worldMap = L.map('world-map').setView([30.2672, -97.7431], 13);
-        worldMap = L.map('world-map').setView([50,-90], 3);
-        L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',{ maxZoom: 20, subdomains:['mt0','mt1','mt2','mt3'], attribution: '&copy; Google' }).addTo(worldMap);
+        worldMap = L.map('world-map').setView([50, -90], 3);
+        L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'], attribution: '&copy; Google' }).addTo(worldMap);
         drawnItems = new L.FeatureGroup();
         worldMap.addLayer(drawnItems);
         const drawControl = new L.Control.Draw({ draw: { polygon: false, polyline: false, circle: false, marker: false, circlemarker: false, rectangle: { shapeOptions: { color: '#f06eaa' } } }, edit: { featureGroup: drawnItems } });
@@ -722,7 +872,7 @@ async function handleSaveCostmap() {
     async function handleSaveMapArea() {
         const filename = snipFilenameInput.value.trim();
         if (!filename || !capturedBounds) return alert('Please provide a filename and draw a rectangle on the map.');
-        
+
         saveMapAreaBtn.disabled = true;
         rasterizeProgressArea.classList.remove('hidden');
         try {
@@ -749,11 +899,11 @@ async function handleSaveCostmap() {
             rasterizeProgressBar.classList.remove('bg-red-500');
 
             if (data.error) {
-                 clearInterval(progressInterval);
-                 rasterizeStatusText.textContent = `Error: ${data.status}`;
-                 rasterizeProgressBar.classList.add('bg-red-500');
-                 saveMapAreaBtn.disabled = false;
-                 return;
+                clearInterval(progressInterval);
+                rasterizeStatusText.textContent = `Error: ${data.status}`;
+                rasterizeProgressBar.classList.add('bg-red-500');
+                saveMapAreaBtn.disabled = false;
+                return;
             }
 
             if (data.progress >= 100) {
@@ -770,7 +920,7 @@ async function handleSaveCostmap() {
             console.error('Progress check failed:', error);
             clearInterval(progressInterval);
             rasterizeStatusText.textContent = 'Error checking progress.';
-             saveMapAreaBtn.disabled = false;
+            saveMapAreaBtn.disabled = false;
         }
     }
 
@@ -798,7 +948,7 @@ async function handleSaveCostmap() {
         imageViewerModal.classList.remove('flex');
         document.body.style.overflow = '';
     }
-    
+
     function updateTransform() {
         imageViewerContent.style.transform = `translate(${panzoomState.translateX}px, ${panzoomState.translateY}px) scale(${panzoomState.scale})`;
     }
@@ -818,9 +968,9 @@ async function handleSaveCostmap() {
         }
     }
 
-    function onMouseDown(e) { if (!imageViewerModal.classList.contains('hidden')) { e.preventDefault(); panzoomState.isPanning = true; panzoomState.startX = e.clientX - panzoomState.translateX; panzoomState.startY = e.clientY - panzoomState.translateY; }}
+    function onMouseDown(e) { if (!imageViewerModal.classList.contains('hidden')) { e.preventDefault(); panzoomState.isPanning = true; panzoomState.startX = e.clientX - panzoomState.translateX; panzoomState.startY = e.clientY - panzoomState.translateY; } }
     function onMouseUp() { panzoomState.isPanning = false; }
-    function onMouseMove(e) { if (panzoomState.isPanning) { e.preventDefault(); panzoomState.translateX = e.clientX - panzoomState.startX; panzoomState.translateY = e.clientY - panzoomState.startY; updateTransform(); }}
+    function onMouseMove(e) { if (panzoomState.isPanning) { e.preventDefault(); panzoomState.translateX = e.clientX - panzoomState.startX; panzoomState.translateY = e.clientY - panzoomState.startY; updateTransform(); } }
 
     function showClassDetailModal(className) {
         if (!currentResultData) return;
@@ -831,16 +981,16 @@ async function handleSaveCostmap() {
 
         const semsegUrl = currentResultData.semantic_masks ? currentResultData.semantic_masks[className] : null;
         const finalUrl = (currentResultData.refined_masks || currentResultData.local_masks)[className];
-        
+
         if (!finalUrl) { alert(`Mask for class "${className}" is not available.`); return; }
 
 
         classDetailTitle.textContent = `Details for: ${className}`;
         detailRgbImg.src = rgbUrl;
-        
+
         detailSemsegOverlayBase.src = rgbUrl;
         detailSemsegOverlayMask.src = semsegUrl ? `${API_BASE_URL}${semsegUrl}` : "https://placehold.co/600x400/2d3748/9ca3af?text=N/A";
-        
+
         detailRefinedOverlayBase.src = rgbUrl;
         detailRefinedOverlayMask.src = finalUrl.startsWith('data:') ? finalUrl : `${API_BASE_URL}${finalUrl}`;
 
@@ -868,7 +1018,7 @@ async function handleSaveCostmap() {
         // --- Get user choice from dropdown ---
         const formatChoice = document.getElementById("download-format").value;
         // Optional: if your app tracks the original GeoTIFF name
-        const tiffFile = document.getElementById("tiff-select")?.value || null;
+        const tiffFile = selectedTiffName || null;
 
         try {
             // Show feedback
@@ -932,19 +1082,19 @@ async function handleSaveCostmap() {
 
     const setupPlannerCanvas = () => {
         if (plannerModal.classList.contains('hidden') || plannerImgBg.clientWidth === 0 || plannerImgBg.clientHeight === 0) {
-            return; 
+            return;
         }
-        
+
         const imgRect = plannerImgBg.getBoundingClientRect();
         const containerRect = plannerImgBg.parentElement.getBoundingClientRect();
-        
+
         plannerCanvas.width = imgRect.width;
         plannerCanvas.height = imgRect.height;
-        
+
         // Position the canvas directly over the visible image
         plannerCanvas.style.left = `${imgRect.left - containerRect.left}px`;
         plannerCanvas.style.top = `${imgRect.top - containerRect.top}px`;
-        
+
         redrawAllPlannerElements();
     };
 
@@ -958,6 +1108,10 @@ async function handleSaveCostmap() {
             path: null,
             originalDimensions: null // Also clear original dimensions
         };
+        if (downloadPlanBtn) downloadPlanBtn.disabled = true;
+        const optsBtn = document.getElementById('download-plan-options-btn');
+        if (optsBtn) optsBtn.disabled = true;
+        setDownloadDropdownOpen(false);
         lastKnownCoords = null;
         plannerCoords.textContent = 'Mouse: (-, -)';
         redrawAllPlannerElements();
@@ -981,7 +1135,7 @@ async function handleSaveCostmap() {
         }
         planPathBtn.disabled = !(plannerState.startPoint && plannerState.endPoint);
     }
-    
+
     function showPlannerModal() {
         const rgbPreviewImg = tiffPreviewContainer.querySelector('img');
         if (!rgbPreviewImg || !rgbPreviewImg.src) {
@@ -991,9 +1145,39 @@ async function handleSaveCostmap() {
 
         plannerModal.classList.remove('hidden');
         plannerModal.classList.add('flex');
-        
-        plannerImgBg.src = rgbPreviewImg.src;
-        
+
+        const tiffName = currentTiffFolder || selectedTiffName;
+        plannerImgBg.onerror = () => {
+            plannerImgBg.onerror = null;
+            plannerImgBg.src = rgbPreviewImg.src;
+        };
+        plannerImgBg.src = tiffName ? `${API_BASE_URL}/results/${tiffName}/preview.png` : rgbPreviewImg.src;
+
+        if (plannerImgOverlay) {
+            if (currentCostmapOverlayUrl) {
+                const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
+                const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+                plannerImgOverlay.onerror = () => {
+                    if (fallback && plannerImgOverlay.src !== fallback) {
+                        plannerImgOverlay.onerror = null;
+                        plannerImgOverlay.src = fallback;
+                    }
+                };
+                plannerImgOverlay.src = primary;
+                plannerImgOverlay.classList.remove('hidden');
+            } else {
+                plannerImgOverlay.src = '';
+                plannerImgOverlay.classList.add('hidden');
+            }
+        }
+        if (plannerOverlaySlider) {
+            setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+        }
+        if (downloadZipNameInput && tiffName && !downloadZipNameInput.value.trim()) {
+            downloadZipNameInput.value = `${tiffName}_plan.zip`;
+            localStorage.setItem('downloadZipName', downloadZipNameInput.value);
+        }
+
         if (plannerImgBg.complete) {
             resetPlannerState();
             setupPlannerCanvas();
@@ -1007,11 +1191,17 @@ async function handleSaveCostmap() {
         if (plannerResizeObserver) plannerResizeObserver.disconnect();
         plannerResizeObserver = new ResizeObserver(setupPlannerCanvas);
         plannerResizeObserver.observe(plannerImgBg.parentElement);
+
+        // Load Saved Goals for current TIFF
+        if (tiffName) {
+            loadSavedGoals(tiffName);
+        }
     }
 
     function hidePlannerModal() {
         plannerModal.classList.add('hidden');
         plannerModal.classList.remove('flex');
+        setDownloadDropdownOpen(false);
         if (plannerResizeObserver) {
             plannerResizeObserver.disconnect();
             plannerResizeObserver = null;
@@ -1037,11 +1227,11 @@ async function handleSaveCostmap() {
         }
 
         plannerState.displayDimensions = { width: plannerCanvas.width, height: plannerCanvas.height };
-        
+
         redrawAllPlannerElements();
         updatePlannerUI();
     }
-    
+
     function drawPlannerPoints() {
         const ctx = plannerCanvas.getContext('2d');
 
@@ -1072,6 +1262,11 @@ async function handleSaveCostmap() {
             return;
         }
 
+        // Goals loaded from disk may not set displayDimensions (it’s usually set on click).
+        if (!plannerState.displayDimensions && plannerCanvas && plannerCanvas.width && plannerCanvas.height) {
+            plannerState.displayDimensions = { width: plannerCanvas.width, height: plannerCanvas.height };
+        }
+
         planPathBtn.disabled = true;
         plannerStatus.textContent = 'Planning...';
 
@@ -1081,7 +1276,7 @@ async function handleSaveCostmap() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     costmap_url: currentCostmapUrl,
-                    tiff_filename: tiffSelect.value,
+                    tiff_filename: selectedTiffName || '',
                     start_point: plannerState.startPoint,
                     goal_point: plannerState.endPoint,
                     display_dimensions: plannerState.displayDimensions
@@ -1089,27 +1284,209 @@ async function handleSaveCostmap() {
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || "Planning failed.");
-            
-            plannerState.path = data.path; 
+
+            plannerState.path = data.path;
             plannerState.originalDimensions = data.original_dimensions; // [MODIFIED] Store original dimensions
+
+            // Enable Download button
+            if (downloadPlanBtn) downloadPlanBtn.disabled = false;
+            const optsBtn = document.getElementById('download-plan-options-btn');
+            if (optsBtn) optsBtn.disabled = false;
             redrawAllPlannerElements();
             plannerStatus.textContent = `Path found with length: ${data.path.length}`;
 
-        } catch(error) {
+        } catch (error) {
             alert(`Planning Error: ${error.message}`);
         } finally {
             planPathBtn.disabled = false;
+            plannerStatus.textContent = plannerState.path ? `Path found: ${plannerState.path.length} steps` : 'Planning failed.';
+        }
+    }
+
+    function getDownloadOptionsFromUI() {
+        return {
+            rgb_plan: document.getElementById('dl-rgb')?.checked ?? true,
+            white_plan: document.getElementById('dl-white')?.checked ?? true,
+            metadata: document.getElementById('dl-meta')?.checked ?? true,
+            costmap_files: document.getElementById('dl-costmap-files')?.checked ?? true,
+            costmap_tiff: document.getElementById('dl-costmap-tiff')?.checked ?? true,
+            original_tiff: document.getElementById('dl-orig-tiff')?.checked ?? true,
+            masks: document.getElementById('dl-masks')?.checked ?? true
+        };
+    }
+
+    function getDownloadOutputFromUI() {
+        return {
+            zip: document.getElementById('dl-out-zip')?.checked ?? true,
+            individual: document.getElementById('dl-out-files')?.checked ?? false
+        };
+    }
+
+    function loadDownloadOptionsIntoUI() {
+        const savedOptions = JSON.parse(localStorage.getItem('downloadOptions') || '{}');
+        const hasSaved = savedOptions && Object.keys(savedOptions).length > 0;
+        const merged = {
+            rgb_plan: true,
+            white_plan: true,
+            metadata: true,
+            costmap_files: true,
+            costmap_tiff: true,
+            original_tiff: true,
+            masks: true,
+            out_zip: true,
+            out_files: false,
+            ...(hasSaved ? savedOptions : {})
+        };
+
+        const set = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.checked = val;
+        };
+        set('dl-rgb', merged.rgb_plan !== false);
+        set('dl-white', merged.white_plan !== false);
+        set('dl-meta', merged.metadata !== false);
+        set('dl-costmap-files', merged.costmap_files !== false);
+        set('dl-costmap-tiff', merged.costmap_tiff !== false);
+        set('dl-orig-tiff', merged.original_tiff !== false);
+        set('dl-masks', merged.masks !== false);
+        set('dl-out-zip', merged.out_zip !== false);
+        set('dl-out-files', merged.out_files === true);
+    }
+
+    function saveDownloadOptionsFromUI() {
+        const options = getDownloadOptionsFromUI();
+        const output = getDownloadOutputFromUI();
+        localStorage.setItem('downloadOptions', JSON.stringify({
+            ...options,
+            out_zip: output.zip,
+            out_files: output.individual
+        }));
+    }
+
+    function setDownloadDropdownOpen(open) {
+        const dropdown = document.getElementById('download-plan-dropdown');
+        const btn = document.getElementById('download-plan-options-btn');
+        if (!dropdown || !btn) return;
+        dropdown.classList.toggle('hidden', !open);
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    async function handleClearTempDownloads() {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/clear-temp-downloads`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to clear temp downloads.');
+            alert(`Cleared temp downloads (${data.deleted || 0} items).`);
+        } catch (e) {
+            alert(`Clear temp downloads error: ${e.message}`);
+        } finally {
+            setDownloadDropdownOpen(false);
+        }
+    }
+
+    async function handleDownloadPlan() {
+        if (!plannerState.path || plannerState.path.length === 0) {
+            alert("No plan available to download. Please generate a path first.");
+            return;
+        }
+        await executeDownloadPlan();
+    }
+
+    async function executeDownloadPlan() {
+        const options = getDownloadOptionsFromUI();
+        const output = getDownloadOutputFromUI();
+        localStorage.setItem('downloadOptions', JSON.stringify({
+            ...options,
+            out_zip: output.zip,
+            out_files: output.individual
+        }));
+        const zipName = (downloadZipNameInput && downloadZipNameInput.value) ? downloadZipNameInput.value.trim() : '';
+
+        if (!output.zip && !output.individual) {
+            alert('Select at least one output type: ZIP and/or Files.');
+            return;
+        }
+
+        const originalText = downloadPlanBtn ? downloadPlanBtn.textContent : '';
+        if (downloadPlanBtn) {
+            downloadPlanBtn.disabled = true;
+            downloadPlanBtn.textContent = 'Generating...';
+        }
+        const optsBtn = document.getElementById('download-plan-options-btn');
+        if (optsBtn) optsBtn.disabled = true;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/download-plan`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tiff_folder: currentTiffFolder || selectedTiffName || '',
+                    costmap_url: currentCostmapUrl,
+                    path: plannerState.path,
+                    start: plannerState.startPoint,
+                    end: plannerState.endPoint,
+                    options: options,
+                    zip_name: zipName,
+                    output: output
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                if (output.zip) {
+                    if (data.download_url) {
+                        const link = document.createElement('a');
+                        link.href = `${API_BASE_URL}${data.download_url}`;
+                        link.download = data.zip_filename || (zipName || '');
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    } else {
+                        alert("ZIP download URL missing in response.");
+                    }
+                }
+
+                if (output.individual) {
+                    const files = Array.isArray(data.individual_files) ? data.individual_files : [];
+                    if (files.length === 0) {
+                        alert('No individual files were generated for the selected options.');
+                    }
+                    for (const f of files) {
+                        if (!f || !f.url) continue;
+                        const link = document.createElement('a');
+                        link.href = `${API_BASE_URL}${f.url}`;
+                        link.download = f.filename || '';
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        // Light throttling to avoid the browser dropping some downloads.
+                        // eslint-disable-next-line no-await-in-loop
+                        await new Promise(r => setTimeout(r, 150));
+                    }
+                }
+            } else {
+                const err = await response.json();
+                alert(`Download Error: ${err.error}`);
+            }
+        } catch (error) {
+            alert(`Download Error: ${error.message}`);
+        } finally {
+            if (downloadPlanBtn) {
+                downloadPlanBtn.disabled = false;
+                downloadPlanBtn.textContent = originalText || 'Download Plan';
+            }
+            if (optsBtn) optsBtn.disabled = false;
         }
     }
 
     function drawPath(path) {
         if (!path || path.length < 2 || !plannerState.originalDimensions) return;
-        
+
         const ctx = plannerCanvas.getContext('2d');
-        
+
         const scaleX = plannerCanvas.width / plannerState.originalDimensions.width;
         const scaleY = plannerCanvas.height / plannerState.originalDimensions.height;
-        
+
         ctx.beginPath();
         ctx.strokeStyle = '#FF0000 ';
         ctx.lineWidth = 3;
@@ -1125,48 +1502,54 @@ async function handleSaveCostmap() {
         }
         ctx.stroke();
     }
-    
+
     function handlePlannerMouseMove(e) {
         const rect = plannerCanvas.getBoundingClientRect();
         const x = Math.round(e.clientX - rect.left);
         const y = Math.round(e.clientY - rect.top);
-        
-        lastKnownCoords = {x, y};
+
+        lastKnownCoords = { x, y };
         plannerCoords.textContent = `Mouse: (${x}, ${y})`;
     }
 
     function handlePlannerMouseLeave() {
-        if(lastKnownCoords) {
+        if (lastKnownCoords) {
             plannerCoords.textContent = `Last: (${lastKnownCoords.x}, ${lastKnownCoords.y})`;
         }
     }
 
-    async function showServerMasksModal() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/get-result-folders`);
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || "Failed to get result folders.");
+    // --- File Browser Functions ---
 
-            serverMasksList.innerHTML = '';
-            if (data.folders.length === 0) {
-                serverMasksList.innerHTML = '<p class="text-gray-500">No previous results found on the server.</p>';
-            } else {
-                data.folders.forEach(folder => {
-                    const item = document.createElement('div');
-                    item.className = 'p-3 border rounded-lg cursor-pointer hover:bg-gray-100';
-                    item.textContent = folder;
-                    item.dataset.runId = folder;
-                    serverMasksList.appendChild(item);
-                });
-            }
-            
-            selectedRunId = null;
-            loadSelectedMasksBtn.disabled = true;
-            serverMasksModal.classList.remove('hidden');
-            serverMasksModal.classList.add('flex');
-        } catch(error) {
-            alert(`Error: ${error.message}`);
+    function openBrowser(mode, startPath = '') {
+        browserMode = mode;
+        browserCurrentPath = startPath;
+        browserSelectedPath = null;
+        loadSelectedMasksBtn.disabled = true;
+
+        // Configure modal for mode
+        if (mode === 'tiff') {
+            browserModalTitle.textContent = 'Browse TIFFs';
+            browserSearchArea.classList.add('hidden');
+            loadSelectedMasksBtn.classList.add('hidden');
+        } else if (mode === 'all') {
+            browserModalTitle.textContent = 'Browse Costmaps';
+            browserSearchArea.classList.add('hidden');
+            loadSelectedMasksBtn.classList.add('hidden');
+        } else {
+            browserModalTitle.textContent = 'Browse Masks';
+            browserSearchArea.classList.remove('hidden');
+            loadSelectedMasksBtn.classList.remove('hidden');
+            browserSearchInput.value = '';
+            browserSearchResults.classList.add('hidden');
         }
+
+        serverMasksModal.classList.remove('hidden');
+        serverMasksModal.classList.add('flex');
+        browseResults(startPath);
+    }
+
+    async function showServerMasksModal() {
+        openBrowser('masks');
     }
 
     function hideServerMasksModal() {
@@ -1174,36 +1557,463 @@ async function handleSaveCostmap() {
         serverMasksModal.classList.remove('flex');
     }
 
-    function handleServerMaskSelection(e) {
-        const target = e.target.closest('[data-run-id]');
-        if (!target) return;
-        
-        serverMasksList.querySelectorAll('.bg-blue-200').forEach(el => el.classList.remove('bg-blue-200', 'border-blue-500'));
-        
-        target.classList.add('bg-blue-200', 'border-blue-500');
-        
-        selectedRunId = target.dataset.runId;
-        loadSelectedMasksBtn.disabled = false;
+    async function browseResults(path) {
+        browserCurrentPath = path;
+        browserSelectedPath = null;
+        loadSelectedMasksBtn.disabled = true;
+        browserUpBtn.disabled = !path;  // Disable Up when at root
+
+        // Update breadcrumb
+        renderBreadcrumb(path);
+
+        serverMasksList.innerHTML = '<p class="text-gray-400 text-center py-4">Loading...</p>';
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/browse-results`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path, mode: browserMode })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to browse.');
+
+            renderFileBrowser(data.items, path);
+        } catch (error) {
+            serverMasksList.innerHTML = `<p class="text-red-500 text-center py-4">Error: ${error.message}</p>`;
+        }
+    }
+
+    // Search handler for mask folders
+    function handleSearchInput() {
+        const query = browserSearchInput.value.trim();
+        clearTimeout(searchDebounceTimer);
+
+        if (!query) {
+            browserSearchResults.classList.add('hidden');
+            return;
+        }
+
+        searchDebounceTimer = setTimeout(async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/search-masks`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
+                });
+                const data = await response.json();
+
+                if (data.results && data.results.length > 0) {
+                    browserSearchResults.classList.remove('hidden');
+                    browserSearchResults.innerHTML = '';
+                    data.results.forEach(result => {
+                        const row = document.createElement('div');
+                        row.className = 'flex items-center gap-2 p-2 hover:bg-blue-50 cursor-pointer border-b last:border-b-0 transition';
+                        row.innerHTML = `
+                            <span class="text-lg">📁</span>
+                            <div class="flex-1 min-w-0">
+                                <div class="font-medium text-sm text-gray-800 truncate">${result.name}</div>
+                                <div class="text-xs text-gray-500 truncate">${result.path}</div>
+                            </div>
+                            <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">masks</span>
+                        `;
+                        row.addEventListener('click', () => {
+                            browserSearchResults.classList.add('hidden');
+                            browserSearchInput.value = '';
+                            // Navigate to the parent of the found mask folder
+                            browseResults(result.path);
+                        });
+
+                        // Add Load button
+                        const loadBtn = document.createElement('button');
+                        loadBtn.className = 'text-xs bg-blue-500 text-white px-3 py-1 rounded-full hover:bg-blue-600 transition ml-1 whitespace-nowrap';
+                        loadBtn.textContent = 'Load';
+                        loadBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            browserSelectedPath = result.path;
+                            loadSelectedMasks();
+                            browserSearchResults.classList.add('hidden');
+                        });
+                        row.appendChild(loadBtn);
+
+                        browserSearchResults.appendChild(row);
+                    });
+                } else {
+                    browserSearchResults.classList.remove('hidden');
+                    browserSearchResults.innerHTML = '<p class="text-gray-500 text-sm text-center p-3">No mask folders found.</p>';
+                }
+            } catch (error) {
+                browserSearchResults.classList.remove('hidden');
+                browserSearchResults.innerHTML = `<p class="text-red-500 text-sm text-center p-3">Search error: ${error.message}</p>`;
+            }
+        }, 300);  // 300ms debounce
+    }
+
+    function renderBreadcrumb(path) {
+        browserBreadcrumb.innerHTML = '';
+
+        // Root crumb
+        const rootCrumb = document.createElement('span');
+        rootCrumb.className = 'cursor-pointer text-blue-600 hover:text-blue-800 font-semibold';
+        rootCrumb.textContent = '📁 results';
+        rootCrumb.addEventListener('click', () => browseResults(''));
+        browserBreadcrumb.appendChild(rootCrumb);
+
+        if (path) {
+            const parts = path.split('/');
+            let accumulated = '';
+            parts.forEach((part, idx) => {
+                // Separator
+                const sep = document.createElement('span');
+                sep.className = 'text-gray-400 mx-1';
+                sep.textContent = '/';
+                browserBreadcrumb.appendChild(sep);
+
+                accumulated += (accumulated ? '/' : '') + part;
+                const crumb = document.createElement('span');
+                if (idx === parts.length - 1) {
+                    crumb.className = 'font-semibold text-gray-800';
+                    crumb.textContent = part;
+                } else {
+                    const crumbPath = accumulated;
+                    crumb.className = 'cursor-pointer text-blue-600 hover:text-blue-800 font-semibold';
+                    crumb.textContent = part;
+                    crumb.addEventListener('click', () => browseResults(crumbPath));
+                }
+                browserBreadcrumb.appendChild(crumb);
+            });
+        }
+    }
+
+    function renderFileBrowser(items, currentPath) {
+        serverMasksList.innerHTML = '';
+
+        if (items.length === 0) {
+            const emptyMsg = browserMode === 'tiff' ? 'No TIFF files found.' : 'This folder is empty.';
+            serverMasksList.innerHTML = `<p class="text-gray-500 text-center py-8 italic">${emptyMsg}</p>`;
+            return;
+        }
+
+        // Separate dirs and files
+        const dirs = items.filter(i => i.type === 'dir');
+        const files = items.filter(i => i.type === 'file');
+
+        // Render directories
+        dirs.forEach(item => {
+            const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 p-3 rounded-lg cursor-pointer hover:bg-blue-50 border border-transparent hover:border-blue-200 transition-all group';
+
+            // Decide icon
+            let icon = '📁';  // Default folder
+            let badge = '';
+            if (item.has_masks) {
+                icon = '📁';
+                badge = '<span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">masks</span>';
+            } else if (item.name === 'temp_latest') {
+                icon = '⏳';
+                badge = '<span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-medium">temp</span>';
+            } else if (item.name.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                icon = '📅';
+            } else if (item.name === 'mask') {
+                icon = '🎭';
+            } else if (item.name === 'costmap') {
+                icon = '🗺️';
+            } else if (item.name === 'semantic' || item.name === 'refined') {
+                icon = '🖼️';
+            }
+
+            row.innerHTML = `
+                <span class="text-2xl">${icon}</span>
+                <span class="flex-1 font-medium text-gray-800 group-hover:text-blue-700">${item.name}</span>
+                ${badge}
+                <span class="text-gray-400 group-hover:text-blue-500">›</span>
+            `;
+
+            // All folders are navigable on click
+            row.addEventListener('click', () => browseResults(itemPath));
+
+            // If it has masks and we're in masks mode, add inline Load button
+            if (item.has_masks && browserMode === 'masks') {
+                const loadBtn = document.createElement('button');
+                loadBtn.className = 'text-xs bg-blue-500 text-white px-3 py-1 rounded-full hover:bg-blue-600 transition ml-2 whitespace-nowrap';
+                loadBtn.textContent = 'Load';
+                loadBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    browserSelectedPath = itemPath;
+                    loadSelectedMasks();
+                });
+                row.insertBefore(loadBtn, row.lastElementChild);
+            }
+
+            // Add rename button for root-level folders (TIFF folders)
+            if (!currentPath) {
+                const renameBtn = document.createElement('button');
+                renameBtn.className = 'text-xs bg-gray-200 text-gray-700 px-2 py-1 rounded-full hover:bg-gray-300 transition whitespace-nowrap';
+                renameBtn.textContent = '✏️ Rename';
+                renameBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    handleRenameTiffFolder(item.name);
+                });
+                row.insertBefore(renameBtn, row.lastElementChild);
+            }
+
+            serverMasksList.appendChild(row);
+        });
+
+        // Render files
+        files.forEach(item => {
+            const itemPath = currentPath ? `${currentPath}/${item.name}` : item.name;
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 p-3 rounded-lg hover:bg-gray-100 transition border border-transparent';
+
+            let icon = '📄';
+            if (item.name.endsWith('.tif') || item.name.endsWith('.tiff')) {
+                icon = '🌍';
+            } else if (item.name.endsWith('.png')) {
+                icon = '🖼️';
+            } else if (item.name.endsWith('.npy')) {
+                icon = '📊';
+            }
+
+            row.innerHTML = `
+                <span class="text-2xl">${icon}</span>
+                <span class="flex-1 font-medium text-gray-800">${item.name}</span>
+            `;
+
+            // In tiff mode, clicking a file selects it as the active TIFF
+            if (browserMode === 'tiff' && (item.name.endsWith('.tif') || item.name.endsWith('.tiff'))) {
+                row.classList.add('cursor-pointer');
+                // Add a "Select" button
+                const selectBtn = document.createElement('button');
+                selectBtn.className = 'text-xs bg-green-500 text-white px-3 py-1 rounded-full hover:bg-green-600 transition whitespace-nowrap';
+                selectBtn.textContent = 'Select';
+                selectBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    // Extract tiff folder name from the path (first part)
+                    const parts = currentPath.split('/');
+                    const tiffFolderName = parts[0] || item.name.replace(/\.(tiff?|tif)$/i, '');
+                    // Set the dropdown to this TIFF
+                    selectTiffFromBrowser(tiffFolderName);
+                    hideServerMasksModal();
+                });
+                row.appendChild(selectBtn);
+            }
+
+            // Download button for all files
+            const dlBtn = document.createElement('button');
+            dlBtn.className = 'text-xs bg-gray-200 text-gray-700 px-3 py-1 rounded-full hover:bg-gray-300 transition whitespace-nowrap';
+            dlBtn.textContent = '⬇ Download';
+            dlBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                downloadResultFile(itemPath);
+            });
+            row.appendChild(dlBtn);
+
+            // In 'all' mode (costmap browsing), allow clicking to load costmap image
+            if (browserMode === 'all' && (item.name.endsWith('.png') || item.name.endsWith('.jpg'))) {
+                row.classList.add('cursor-pointer');
+                row.addEventListener('click', (e) => {
+                    // Only if we clicked the row, not the download button
+                    if (e.target === dlBtn) return;
+
+                    const costmapUrl = `/api/download-result-file?path=${itemPath}`; // We can use the static file serving or download endpoint?
+                    // Actually, results are served statically
+                    // path is e.g. results/subdir/file.png
+                    // We need to convert path to URL
+                    // Usually results are mapped? 
+                    // app.py: @app.route('/results/<path:filename>') -> send_from_directory(RESULTS_FOLDER, filename)
+                    // itemPath is relative to RESULTS_FOLDER?
+                    // browseResults gets items from RESULTS_FOLDER.
+                    // itemPath is relative to RESULTS_FOLDER.
+
+                    const clickedCostmapUrl = `/results/${itemPath}`;
+                    costmapDisplayArea.classList.remove('hidden');
+                    saveCostmapImgBtn.disabled = true; // Loaded costmap, maybe not re-saveable directly?
+                    const urls = deriveOverlayAndBwUrls(clickedCostmapUrl);
+                    currentCostmapUrl = urls.bwUrl;
+                    currentCostmapOverlayUrl = urls.overlayUrl;
+                    currentCostmapOverlayFallbackUrl = urls.overlayFallbackUrl;
+                    updateCostmapOverlayUI();
+
+                    // Also load goals for the TIFF
+                    // itemPath: tiff_folder/costmap/.../file.png
+                    const parts = itemPath.split('/');
+                    const tiffName = parts[0];
+                    if (tiffName && tiffName !== selectedTiffName) {
+                        setSelectedTiff(tiffName);
+                    }
+                    loadSavedGoals(tiffName);
+
+                    hideServerMasksModal();
+                });
+            }
+
+            serverMasksList.appendChild(row);
+        });
+    }
+
+    function selectTiffFromBrowser(tiffFolderName) {
+        setSelectedTiff(tiffFolderName);
+        hideServerMasksModal();
+    }
+
+    async function handleRenameTiffFolder(oldName) {
+        const newName = prompt(`Rename "${oldName}" to:`, oldName);
+        if (!newName || newName === oldName) return;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/rename-tiff-folder`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ old_name: oldName, new_name: newName })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                alert('Rename failed: ' + (data.error || 'Unknown error'));
+                return;
+            }
+            alert(`Renamed to "${newName}"`);
+            // If this was the selected TIFF, update the selection
+            if (selectedTiffName === oldName) {
+                setSelectedTiff(newName);
+            }
+            // Refresh the current browser view
+            browseResults(browserCurrentPath);
+        } catch (error) {
+            alert('Rename error: ' + error.message);
+        }
+    }
+
+    function handleBrowseCostmaps() {
+        // Browse costmaps for the selected TIFF (or all results if none selected)
+        const tiffName = selectedTiffName;
+        openBrowser('all', tiffName ? `${tiffName}/costmap` : '');
+    }
+
+    async function handleSaveCostmap() {
+        if (!currentCostmapUrl) {
+            alert("No costmap generated yet.");
+            return;
+        }
+
+        const suffix = prompt('Enter a suffix for this costmap run (optional):');
+        if (suffix === null) return;
+
+        saveCostmapImgBtn.disabled = true;
+        saveCostmapImgBtn.textContent = 'Saving...';
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/save-costmap`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tiff_folder: currentTiffFolder || selectedTiffName,
+                    costmap_url: currentCostmapUrl,
+                    suffix: suffix.trim()
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Failed to save costmap.");
+
+            alert(`✅ ${data.message}`);
+        } catch (e) {
+            alert(`Error: ${e.message}`);
+        } finally {
+            saveCostmapImgBtn.disabled = false;
+            saveCostmapImgBtn.textContent = '💾 Save';
+        }
+    }
+
+    async function downloadResultFile(path) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/download-result-file`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: path })
+            });
+            if (!response.ok) {
+                const err = await response.json();
+                alert('Download failed: ' + (err.error || 'Unknown error'));
+                return;
+            }
+            const blob = await response.blob();
+            const filename = path.split('/').pop();
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        } catch (error) {
+            alert('Download error: ' + error.message);
+        }
+    }
+
+
+
+    function handleBrowserUp() {
+        if (!browserCurrentPath) return;
+        const parts = browserCurrentPath.split('/');
+        parts.pop();
+        browseResults(parts.join('/'));
     }
 
     async function loadSelectedMasks() {
-        if (!selectedRunId) return;
-        
+        if (!browserSelectedPath) return;
+
         loadSelectedMasksBtn.textContent = 'Loading...';
         loadSelectedMasksBtn.disabled = true;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/load-masks-from-folder/${selectedRunId}`);
+            const response = await fetch(`${API_BASE_URL}/api/load-masks-from-path`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: browserSelectedPath })
+            });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to load mask set.');
-            
+
             displayResults(data);
             hideServerMasksModal();
 
         } catch (error) {
             alert(`Error: ${error.message}`);
         } finally {
-            loadSelectedMasksBtn.textContent = 'Load Selected Set';
+            loadSelectedMasksBtn.textContent = 'Load Selected Masks';
+        }
+    }
+
+    async function handleSaveMasks() {
+        if (!currentTiffFolder) {
+            alert('No pipeline results to save. Run the pipeline first.');
+            return;
+        }
+
+        const suffix = prompt('Enter a suffix for this save (optional):');
+        if (suffix === null) return;  // User cancelled
+
+        saveMasksBtn.disabled = true;
+        saveMasksBtn.textContent = 'Saving...';
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/save-masks`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tiff_folder: currentTiffFolder,
+                    suffix: suffix.trim()
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to save masks.');
+
+            alert(`✅ ${data.message}`);
+        } catch (error) {
+            alert(`Save Error: ${error.message}`);
+        } finally {
+            saveMasksBtn.disabled = false;
+            saveMasksBtn.textContent = '💾 Save';
         }
     }
 
@@ -1212,20 +2022,19 @@ async function handleSaveCostmap() {
     fetchTiffFiles();
     fetchDefaultConfig();
     updateGpuStatus();
-    
+
     runPipelineBtn.addEventListener('click', handleRunPipeline);
     cancelPipelineBtn.addEventListener('click', handleCancelPipeline);
     generateCostmapBtn.addEventListener('click', handleGenerateCostmap);
     loadServerMasksBtn.addEventListener('click', showServerMasksModal);
-    
+
     processPromptBtn.addEventListener('click', handleProcessPrompt);
     addClassBtn.addEventListener('click', handleAddClass);
     newClassInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddClass());
     classListContainer.addEventListener('change', handleClassListChange);
     classListContainer.addEventListener('click', (e) => e.target.classList.contains('remove-class-btn') && handleClassListChange(e));
 
-    tiffSelect.addEventListener('change', handleTiffSelect);
-    
+
     confirmClassesBtn.addEventListener('click', () => {
         const config = collectFinalConfig();
         console.log("--- CONFIRMED CONFIGURATION ---", config);
@@ -1254,13 +2063,9 @@ async function handleSaveCostmap() {
 
             alert("✅ TIFF uploaded successfully!");
 
-            // Update dropdown dynamically
-            const select = document.getElementById("tiff-select");
-            const option = document.createElement("option");
-            option.value = result.filename;
-            option.textContent = result.filename;
-            select.appendChild(option);
-            select.value = result.filename; // auto-select newly uploaded file
+            // Auto-select the uploaded TIFF
+            const folderName = result.filename.replace(/\.(tiff?|tif)$/i, '');
+            setSelectedTiff(folderName);
 
         } catch (error) {
             console.error("Error uploading TIFF:", error);
@@ -1271,13 +2076,92 @@ async function handleSaveCostmap() {
         }
     });
 
-    
-    updateParamsBtn.addEventListener('click', () => {
+
+    // --- Parameter Persistence ---
+    async function loadParamsFromServer() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/params`);
+            const data = await response.json();
+            if (data.params) {
+                applyParams(data.params);
+                console.log(`Parameters loaded (${data.source})`);
+            }
+        } catch (err) {
+            console.warn('Could not load saved parameters:', err.message);
+        }
+    }
+
+    function applyParams(params) {
+        for (const key in params) {
+            const input = paramInputs[key];
+            if (!input) continue;
+            if (input.classList && input.classList.contains('toggle-btn-group')) {
+                // Toggle button group
+                input.querySelectorAll('button').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.value === params[key]);
+                });
+            } else if (input.tagName === 'SELECT') {
+                // Only set if option exists
+                const optionExists = Array.from(input.options).some(o => o.value === params[key]);
+                if (optionExists) input.value = params[key];
+            } else {
+                input.value = params[key];
+            }
+        }
+    }
+
+    function collectParams() {
+        const params = {};
+        for (const key in paramInputs) {
+            const input = paramInputs[key];
+            if (input.classList && input.classList.contains('toggle-btn-group')) {
+                const active = input.querySelector('button.active');
+                params[key] = active ? active.dataset.value : 'max';
+            } else {
+                params[key] = input.value;
+            }
+        }
+        return params;
+    }
+
+    async function saveParamsToServer() {
+        try {
+            await fetch(`${API_BASE_URL}/api/params`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ params: collectParams() })
+            });
+        } catch (err) {
+            console.warn('Could not save parameters:', err.message);
+        }
+    }
+
+    updateParamsBtn.addEventListener('click', async () => {
         console.log("Parameters Updated:", collectFinalConfig().params);
-        updateParamsBtn.textContent = "Updated!";
+        await saveParamsToServer();
+        updateParamsBtn.textContent = "Saved!";
         setTimeout(() => { updateParamsBtn.textContent = "Update Parameters"; }, 2000);
     });
-    
+
+    const resetParamsBtn = document.getElementById('reset-params-btn');
+    resetParamsBtn.addEventListener('click', async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/params`, { method: 'DELETE' });
+            const data = await response.json();
+            if (data.params) {
+                applyParams(data.params);
+                renderClasses();
+            }
+            resetParamsBtn.textContent = "Reset!";
+            setTimeout(() => { resetParamsBtn.textContent = "\u21ba Reset to Default"; }, 2000);
+        } catch (err) {
+            alert('Reset failed: ' + err.message);
+        }
+    });
+
+    // Load saved parameters on startup
+    loadParamsFromServer();
+
     showGpuModalBtn.addEventListener('click', showGpuStatus);
     closeGpuModalBtn.addEventListener('click', hideGpuStatus);
     showConsoleBtn.addEventListener('click', showConsole);
@@ -1285,7 +2169,7 @@ async function handleSaveCostmap() {
     showCostmapBtn.addEventListener('click', showCostmapModal);
     closeCostmapBtn.addEventListener('click', hideCostmapModal);
     editCostmapBtn.addEventListener('click', handleEditCostmap);
-    saveCostmapBtn.addEventListener('click', handleSaveCostmap);
+    saveCostmapBtn.addEventListener('click', handleSaveCostmapCode);
     restoreCostmapBtn.addEventListener('click', handleRestoreCostmap);
     showWorldMapBtn.addEventListener('click', showWorldMap);
     closeWorldMapBtn.addEventListener('click', hideWorldMap);
@@ -1295,7 +2179,7 @@ async function handleSaveCostmap() {
     paramInputs.areal_threshold.addEventListener('change', renderClasses);
     paramInputs.linear_threshold.addEventListener('change', renderClasses);
     tiffPreviewContainer.addEventListener('click', (e) => {
-        if(e.target.tagName === 'IMG') { openImageViewer(e.target.src); }
+        if (e.target.tagName === 'IMG') { openImageViewer(e.target.src); }
     });
     closeImageViewerBtn.addEventListener('click', closeImageViewer);
 
@@ -1335,9 +2219,271 @@ async function handleSaveCostmap() {
         updatePlannerUI();
     });
     planPathBtn.addEventListener('click', handlePlanPath);
+    if (downloadPlanBtn) {
+        downloadPlanBtn.addEventListener('click', handleDownloadPlan);
+
+        // Download dropdown (options)
+        loadDownloadOptionsIntoUI();
+        ['dl-rgb', 'dl-white', 'dl-meta', 'dl-costmap-files', 'dl-costmap-tiff', 'dl-orig-tiff', 'dl-masks', 'dl-out-zip', 'dl-out-files'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', saveDownloadOptionsFromUI);
+        });
+
+        const optsBtn = document.getElementById('download-plan-options-btn');
+        if (optsBtn) {
+            optsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dropdown = document.getElementById('download-plan-dropdown');
+                const isOpen = dropdown && !dropdown.classList.contains('hidden');
+                setDownloadDropdownOpen(!isOpen);
+            });
+        }
+
+        document.addEventListener('click', (e) => {
+            const wrapper = document.getElementById('download-plan-wrapper');
+            if (!wrapper) return;
+            if (!wrapper.contains(e.target)) setDownloadDropdownOpen(false);
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') setDownloadDropdownOpen(false);
+        });
+    }
     clearPlanBtn.addEventListener('click', resetPlannerState);
 
+    if (downloadZipNameInput) {
+        const savedZipName = localStorage.getItem('downloadZipName') || '';
+        if (savedZipName) downloadZipNameInput.value = savedZipName;
+        downloadZipNameInput.addEventListener('input', () => {
+            localStorage.setItem('downloadZipName', downloadZipNameInput.value);
+        });
+    }
+
+    if (clearTempDownloadsBtn) {
+        clearTempDownloadsBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleClearTempDownloads();
+        });
+    }
+
+    if (costmapOverlaySlider) {
+        const saved = localStorage.getItem('costmapOverlayOpacity');
+        if (saved) costmapOverlaySlider.value = saved;
+        costmapOverlaySlider.addEventListener('input', () => {
+            localStorage.setItem('costmapOverlayOpacity', costmapOverlaySlider.value);
+            setImgOpacityFromSlider(costmapOverlayImg, costmapOverlaySlider);
+        });
+        setImgOpacityFromSlider(costmapOverlayImg, costmapOverlaySlider);
+    }
+
+    if (plannerOverlaySlider) {
+        const saved = localStorage.getItem('plannerOverlayOpacity');
+        if (saved) plannerOverlaySlider.value = saved;
+        plannerOverlaySlider.addEventListener('input', () => {
+            localStorage.setItem('plannerOverlayOpacity', plannerOverlaySlider.value);
+            setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+        });
+        setImgOpacityFromSlider(plannerImgOverlay, plannerOverlaySlider);
+    }
+
     closeServerMasksBtn.addEventListener('click', hideServerMasksModal);
-    serverMasksList.addEventListener('click', handleServerMaskSelection);
+    browserUpBtn.addEventListener('click', handleBrowserUp);
     loadSelectedMasksBtn.addEventListener('click', loadSelectedMasks);
+    saveMasksBtn.addEventListener('click', handleSaveMasks);
+    browseTiffsBtn.addEventListener('click', () => openBrowser('tiff'));
+    browserSearchInput.addEventListener('input', handleSearchInput);
+    browseCostmapsBtn.addEventListener('click', handleBrowseCostmaps);
+    saveCostmapImgBtn.addEventListener('click', handleSaveCostmap);
+    // --- Saved Goals Logic ---
+    async function loadSavedGoals(tiffName) {
+        if (!tiffName) return;
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/goals?tiff_name=${encodeURIComponent(tiffName)}`);
+            const data = await response.json();
+
+            savedGoalsList.innerHTML = '';
+            if (data.goals && data.goals.length > 0) {
+                data.goals.forEach(goal => {
+                    const div = document.createElement('div');
+                    div.className = "flex justify-between items-center bg-white p-2 rounded shadow-sm border border-gray-100 group hover:bg-gray-50 transition";
+
+                    // Name/Date Container
+                    const infoDiv = document.createElement('div');
+                    infoDiv.className = "flex-1 cursor-text select-none";
+                    infoDiv.title = "Double-click to rename";
+
+                    const nameEl = document.createElement('div');
+                    nameEl.className = "font-medium text-gray-700";
+                    nameEl.textContent = goal.name;
+
+                    const dateEl = document.createElement('div');
+                    dateEl.className = "text-xs text-gray-400";
+                    dateEl.textContent = new Date(goal.timestamp * 1000).toLocaleString();
+
+                    infoDiv.appendChild(nameEl);
+                    infoDiv.appendChild(dateEl);
+
+                    // Rename Logic
+                    infoDiv.addEventListener('dblclick', () => {
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.value = goal.name;
+                        input.className = "border rounded px-1 py-0.5 text-sm w-full outline-blue-500 shadow-sm";
+
+                        const savedName = goal.name;
+                        let isSaving = false;
+
+                        async function saveRename() {
+                            if (isSaving) return;
+                            isSaving = true;
+                            const newName = input.value.trim();
+                            if (newName && newName !== savedName) {
+                                try {
+                                    const res = await fetch(`${API_BASE_URL}/api/goals/${goal.id}`, {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ tiff_name: tiffName, name: newName })
+                                    });
+                                    if (res.ok) {
+                                        goal.name = newName;
+                                        nameEl.textContent = newName;
+                                        infoDiv.replaceChild(nameEl, input);
+                                    } else {
+                                        alert("Failed to rename.");
+                                        infoDiv.replaceChild(nameEl, input);
+                                    }
+                                } catch (e) { console.error(e); infoDiv.replaceChild(nameEl, input); }
+                            } else {
+                                if (infoDiv.contains(input)) infoDiv.replaceChild(nameEl, input);
+                            }
+                        }
+
+                        input.addEventListener('blur', saveRename);
+                        input.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') { input.blur(); }
+                        });
+
+                        infoDiv.replaceChild(input, nameEl);
+                        input.focus();
+                    });
+
+                    div.appendChild(infoDiv);
+
+                    // Actions Container
+                    const actionsDiv = document.createElement('div');
+                    actionsDiv.className = "flex gap-2 ml-2";
+
+                    // Load Button
+                    const loadBtn = document.createElement('button');
+                    loadBtn.className = "text-xs bg-green-100 text-green-700 font-bold px-2 py-1 rounded hover:bg-green-200 border border-green-200 transition shadow-sm";
+                    loadBtn.textContent = 'Load';
+                    loadBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (goal.start && goal.end) {
+                            plannerState.startPoint = goal.start;
+                            plannerState.endPoint = goal.end;
+                            plannerState.displayDimensions = { width: plannerCanvas.width, height: plannerCanvas.height };
+                            plannerState.path = null;
+                            plannerState.originalDimensions = null;
+                            if (downloadPlanBtn) downloadPlanBtn.disabled = true;
+                            const optsBtn = document.getElementById('download-plan-options-btn');
+                            if (optsBtn) optsBtn.disabled = true;
+                            setDownloadDropdownOpen(false);
+                            // Reset selection modes and update UI
+                            plannerState.selectingStart = false;
+                            plannerState.selectingEnd = false;
+
+                            redrawAllPlannerElements();
+                            updatePlannerUI();
+
+                            // Enable planning since points are set
+                            planPathBtn.disabled = false;
+
+                            // Visual feedback
+                            const originalText = loadBtn.textContent;
+                            loadBtn.textContent = "Loaded!";
+                            loadBtn.classList.remove('bg-green-100', 'text-green-700');
+                            loadBtn.classList.add('bg-gray-800', 'text-white');
+                            setTimeout(() => {
+                                loadBtn.textContent = originalText;
+                                loadBtn.classList.add('bg-green-100', 'text-green-700');
+                                loadBtn.classList.remove('bg-gray-800', 'text-white');
+                            }, 1000);
+                        }
+                    });
+
+                    // Delete Button
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = "text-xs bg-red-50 text-red-600 font-bold px-2 py-1 rounded hover:bg-red-100 border border-red-200 transition opacity-100 md:opacity-0 group-hover:opacity-100 shadow-sm";
+                    deleteBtn.textContent = '✕';
+                    deleteBtn.title = "Delete Goal";
+                    deleteBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        if (confirm(`Are you sure you want to delete "${goal.name}"?`)) {
+                            try {
+                                const res = await fetch(`${API_BASE_URL}/api/goals/${goal.id}?tiff_name=${encodeURIComponent(tiffName)}`, {
+                                    method: 'DELETE'
+                                });
+                                if (res.ok) {
+                                    loadSavedGoals(tiffName);
+                                } else {
+                                    alert("Failed to delete goal.");
+                                }
+                            } catch (e) { console.error(e); }
+                        }
+                    });
+
+                    actionsDiv.appendChild(loadBtn);
+                    actionsDiv.appendChild(deleteBtn);
+                    div.appendChild(actionsDiv);
+
+                    savedGoalsList.appendChild(div);
+                });
+            } else {
+                savedGoalsList.innerHTML = '<span class="text-sm text-gray-400 italic">No goals saved.</span>';
+            }
+        } catch (err) {
+            console.error("Error loading goals:", err);
+            savedGoalsList.innerHTML = '<span class="text-sm text-red-400 italic">Error loading goals.</span>';
+        }
+    }
+
+    saveCurrentGoalBtn.addEventListener('click', async () => {
+        if (!plannerState.startPoint || !plannerState.endPoint) {
+            alert("Please set both Start and End points on the costmap first.");
+            return;
+        }
+
+        const tiffName = currentTiffFolder || selectedTiffName;
+        if (!tiffName) {
+            alert("No TIFF selected.");
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/goals`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    tiff_name: tiffName,
+                    start: plannerState.startPoint,
+                    end: plannerState.endPoint
+                })
+            });
+            const data = await response.json();
+            if (data.goal) {
+                loadSavedGoals(tiffName); // Refresh list
+                const originalText = saveCurrentGoalBtn.textContent;
+                saveCurrentGoalBtn.textContent = "Saved!";
+                setTimeout(() => { saveCurrentGoalBtn.textContent = originalText; }, 2000);
+            } else {
+                alert("Failed to save goal: " + (data.error || "Unknown error"));
+            }
+        } catch (err) {
+            console.error("Error saving goal:", err);
+            alert("Error saving goal.");
+        }
+    });
+
 });
