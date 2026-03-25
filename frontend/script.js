@@ -97,6 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const classDetailModal = document.getElementById('class-detail-modal'),
         closeClassDetailBtn = document.getElementById('close-class-detail-btn'),
+        editMaskBtn = document.getElementById('edit-mask-btn'),
         classDetailTitle = document.getElementById('class-detail-title'),
         detailRgbImg = document.getElementById('detail-rgb'),
         detailSemsegOverlayBase = document.getElementById('detail-semseg-overlay-base'),
@@ -105,6 +106,29 @@ document.addEventListener('DOMContentLoaded', () => {
         detailRefinedOverlayBase = document.getElementById('detail-refined-overlay-base'),
         detailRefinedOverlayMask = document.getElementById('detail-refined-overlay-mask'),
         refinedSlider = document.getElementById('refined-slider');
+
+    const pixelEditorModal = document.getElementById('pixel-editor-modal'),
+        pixelEditorTitle = document.getElementById('pixel-editor-title'),
+        pixelEditorSubtitle = document.getElementById('pixel-editor-subtitle'),
+        closePixelEditorBtn = document.getElementById('close-pixel-editor-btn'),
+        pixelEditorCanvas = document.getElementById('pixel-editor-canvas'),
+        pixelSelectionCount = document.getElementById('pixel-selection-count'),
+        pixelToolButtons = document.getElementById('pixel-tool-buttons'),
+        pixelBrushSizeInput = document.getElementById('pixel-brush-size-input'),
+        pixelBrushSizeValue = document.getElementById('pixel-brush-size-value'),
+        pixelToolHint = document.getElementById('pixel-tool-hint'),
+        pixelClosePolygonBtn = document.getElementById('pixel-close-polygon-btn'),
+        pixelZoomLabel = document.getElementById('pixel-zoom-label'),
+        pixelZoomOutBtn = document.getElementById('pixel-zoom-out-btn'),
+        pixelZoomResetBtn = document.getElementById('pixel-zoom-reset-btn'),
+        pixelZoomInBtn = document.getElementById('pixel-zoom-in-btn'),
+        pixelClearSelectionBtn = document.getElementById('pixel-clear-selection-btn'),
+        pixelUndoSelectionBtn = document.getElementById('pixel-undo-selection-btn'),
+        pixelValueInput = document.getElementById('pixel-value-input'),
+        pixelApplyValueBtn = document.getElementById('pixel-apply-value-btn'),
+        pixelSaveBtn = document.getElementById('pixel-save-btn'),
+        pixelEditorStatus = document.getElementById('pixel-editor-status'),
+        editCostmapPixelsBtn = document.getElementById('edit-costmap-pixels-btn');
 
     const planOverMapBtn = document.getElementById('plan-over-map-btn'),
         downloadCostmapBtn = document.getElementById('download-costmap-btn'),
@@ -143,6 +167,28 @@ document.addEventListener('DOMContentLoaded', () => {
     let browserMode = 'masks';  // 'tiff' or 'masks'
     let searchDebounceTimer = null;
     let selectedTiffName = null;  // Currently selected TIFF file/folder name
+    const assetVersions = new Map();
+    const pixelEditorState = {
+        imageType: null,
+        imageUrl: null,
+        colorUrl: null,
+        className: null,
+        imageData: null,
+        width: 0,
+        height: 0,
+        zoom: 1,
+        selectedPixels: new Set(),
+        permanentPixels: new Set(),
+        selectionHistory: [],
+        currentStroke: null,
+        isDrawing: false,
+        lastPoint: null,
+        isDirty: false,
+        tool: 'single',
+        brushSize: 1,
+        polygonPoints: [],
+        hoverPoint: null
+    };
 
     // --- Helper Functions ---
     function rgbToHex(rgbString) {
@@ -195,6 +241,36 @@ document.addEventListener('DOMContentLoaded', () => {
         return { overlayUrl: bwUrl, overlayFallbackUrl, bwUrl };
     }
 
+    function withAssetVersion(url) {
+        if (!url || url.startsWith('data:')) return url;
+        const version = assetVersions.get(url);
+        const suffix = version ? `?v=${version}` : '';
+        return `${API_BASE_URL}${url}${suffix}`;
+    }
+
+    function bumpAssetVersion(url) {
+        if (!url || url.startsWith('data:')) return;
+        assetVersions.set(url, Date.now());
+    }
+
+    function getPixelKey(x, y) {
+        return `${x},${y}`;
+    }
+
+    function parsePixelKey(key) {
+        const [x, y] = key.split(',').map(Number);
+        return { x, y };
+    }
+
+    function loadImage(src) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+            img.src = src;
+        });
+    }
+
     function setImgOpacityFromSlider(imgEl, sliderEl) {
         if (!imgEl || !sliderEl) return;
         imgEl.style.opacity = (sliderEl.value / 100).toString();
@@ -209,8 +285,8 @@ document.addEventListener('DOMContentLoaded', () => {
         costmapOverlayBaseImg.src = (rgbPreviewImg ? rgbPreviewImg.src : '') || previewUrl;
 
         if (currentCostmapOverlayUrl) {
-            const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
-            const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+            const primary = withAssetVersion(currentCostmapOverlayUrl);
+            const fallback = currentCostmapOverlayFallbackUrl ? withAssetVersion(currentCostmapOverlayFallbackUrl) : '';
             costmapOverlayImg.onerror = () => {
                 if (fallback && costmapOverlayImg.src !== fallback) {
                     costmapOverlayImg.onerror = null;
@@ -231,8 +307,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // If planner is open, also update its overlay image.
         if (plannerModal && !plannerModal.classList.contains('hidden') && plannerImgOverlay) {
             if (currentCostmapOverlayUrl) {
-                const primary = `${API_BASE_URL}${currentCostmapOverlayUrl}`;
-                const fallback = currentCostmapOverlayFallbackUrl ? `${API_BASE_URL}${currentCostmapOverlayFallbackUrl}` : '';
+                const primary = withAssetVersion(currentCostmapOverlayUrl);
+                const fallback = currentCostmapOverlayFallbackUrl ? withAssetVersion(currentCostmapOverlayFallbackUrl) : '';
                 plannerImgOverlay.onerror = () => {
                     if (fallback && plannerImgOverlay.src !== fallback) {
                         plannerImgOverlay.onerror = null;
@@ -358,7 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const maskCard = document.createElement('div');
             maskCard.className = 'bg-gray-50 rounded-lg shadow-md overflow-hidden border border-gray-200 cursor-pointer hover:shadow-xl hover:border-blue-500 transition-all';
             maskCard.dataset.className = className;
-            const finalUrl = maskUrl.startsWith('data:') ? maskUrl : `${API_BASE_URL}${maskUrl}`;
+            const finalUrl = maskUrl.startsWith('data:') ? maskUrl : withAssetVersion(maskUrl);
             maskCard.innerHTML = `
                 <img src="${finalUrl}" alt="Mask for ${className}" class="w-full h-48 object-cover pointer-events-none">
                 <div class="p-4"><h3 class="font-bold text-lg text-center pointer-events-none">${className}</h3></div>`;
@@ -986,13 +1062,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
         classDetailTitle.textContent = `Details for: ${className}`;
+        editMaskBtn.dataset.className = className;
         detailRgbImg.src = rgbUrl;
 
         detailSemsegOverlayBase.src = rgbUrl;
-        detailSemsegOverlayMask.src = semsegUrl ? `${API_BASE_URL}${semsegUrl}` : "https://placehold.co/600x400/2d3748/9ca3af?text=N/A";
+        detailSemsegOverlayMask.src = semsegUrl ? withAssetVersion(semsegUrl) : "https://placehold.co/600x400/2d3748/9ca3af?text=N/A";
 
         detailRefinedOverlayBase.src = rgbUrl;
-        detailRefinedOverlayMask.src = finalUrl.startsWith('data:') ? finalUrl : `${API_BASE_URL}${finalUrl}`;
+        detailRefinedOverlayMask.src = finalUrl.startsWith('data:') ? finalUrl : withAssetVersion(finalUrl);
 
         semsegSlider.value = 60;
         refinedSlider.value = 60;
@@ -1008,6 +1085,436 @@ document.addEventListener('DOMContentLoaded', () => {
         classDetailModal.classList.add('hidden');
         classDetailModal.classList.remove('flex');
         document.body.style.overflow = '';
+    }
+
+    function updatePixelEditorSelectionUI() {
+        pixelSelectionCount.textContent = pixelEditorState.selectedPixels.size.toString();
+        pixelUndoSelectionBtn.disabled = pixelEditorState.selectionHistory.length === 0 && pixelEditorState.polygonPoints.length === 0;
+        pixelApplyValueBtn.disabled = pixelEditorState.selectedPixels.size === 0;
+        pixelSaveBtn.disabled = !pixelEditorState.isDirty;
+        pixelEditorStatus.textContent = pixelEditorState.isDirty ? 'Local changes ready to save.' : 'No local changes yet.';
+        pixelBrushSizeInput.disabled = !['square', 'circle'].includes(pixelEditorState.tool);
+        pixelClosePolygonBtn.disabled = pixelEditorState.tool !== 'polygon' || pixelEditorState.polygonPoints.length < 3;
+
+        Array.from(pixelToolButtons.querySelectorAll('[data-tool]')).forEach((button) => {
+            const isActive = button.dataset.tool === pixelEditorState.tool;
+            button.classList.toggle('bg-blue-600', isActive);
+            button.classList.toggle('text-white', isActive);
+            button.classList.toggle('hover:bg-blue-700', isActive);
+            button.classList.toggle('bg-gray-200', !isActive);
+            button.classList.toggle('text-gray-800', !isActive);
+            button.classList.toggle('hover:bg-gray-300', !isActive);
+        });
+
+        pixelBrushSizeValue.textContent = `${pixelEditorState.brushSize} px`;
+        if (pixelEditorState.tool === 'single') {
+            pixelToolHint.textContent = 'Single pixel mode selects exactly one pixel per hit.';
+        } else if (pixelEditorState.tool === 'square') {
+            pixelToolHint.textContent = 'Square mode paints a square brush as you click or drag.';
+        } else if (pixelEditorState.tool === 'circle') {
+            pixelToolHint.textContent = 'Circle mode paints a circular brush as you click or drag.';
+        } else {
+            pixelToolHint.textContent = 'Polygon mode places vertices on click. Close the polygon to add the enclosed area to the selection.';
+        }
+    }
+
+    function updatePixelEditorZoomUI() {
+        const zoomPercent = Math.round(pixelEditorState.zoom * 100);
+        pixelZoomLabel.textContent = `${zoomPercent}%`;
+        pixelEditorCanvas.style.width = `${pixelEditorState.width * pixelEditorState.zoom}px`;
+        pixelEditorCanvas.style.height = `${pixelEditorState.height * pixelEditorState.zoom}px`;
+    }
+
+    function renderPixelEditorCanvas() {
+        if (!pixelEditorState.imageData) return;
+        const ctx = pixelEditorCanvas.getContext('2d');
+        ctx.putImageData(pixelEditorState.imageData, 0, 0);
+        ctx.save();
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.75)';
+        for (const key of pixelEditorState.selectedPixels) {
+            const { x, y } = parsePixelKey(key);
+            ctx.fillRect(x, y, 1, 1);
+        }
+        if (pixelEditorState.tool === 'polygon' && pixelEditorState.polygonPoints.length > 0) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(79, 70, 229, 0.95)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(pixelEditorState.polygonPoints[0].x + 0.5, pixelEditorState.polygonPoints[0].y + 0.5);
+            for (let i = 1; i < pixelEditorState.polygonPoints.length; i += 1) {
+                ctx.lineTo(pixelEditorState.polygonPoints[i].x + 0.5, pixelEditorState.polygonPoints[i].y + 0.5);
+            }
+            if (pixelEditorState.hoverPoint) {
+                ctx.lineTo(pixelEditorState.hoverPoint.x + 0.5, pixelEditorState.hoverPoint.y + 0.5);
+            }
+            ctx.stroke();
+            pixelEditorState.polygonPoints.forEach((point) => {
+                ctx.fillStyle = 'rgba(79, 70, 229, 1)';
+                ctx.fillRect(point.x - 1, point.y - 1, 3, 3);
+            });
+            ctx.restore();
+        }
+        ctx.restore();
+        updatePixelEditorSelectionUI();
+        updatePixelEditorZoomUI();
+    }
+
+    function rebuildPixelSelection() {
+        pixelEditorState.selectedPixels = new Set(pixelEditorState.permanentPixels);
+        pixelEditorState.selectionHistory.forEach((stroke) => {
+            stroke.forEach((key) => pixelEditorState.selectedPixels.add(key));
+        });
+    }
+
+    function clearPixelSelection() {
+        pixelEditorState.selectedPixels.clear();
+        pixelEditorState.permanentPixels.clear();
+        pixelEditorState.selectionHistory = [];
+        pixelEditorState.currentStroke = null;
+        pixelEditorState.lastPoint = null;
+        pixelEditorState.polygonPoints = [];
+        pixelEditorState.hoverPoint = null;
+        renderPixelEditorCanvas();
+    }
+
+    function commitPixelStroke(stroke) {
+        if (!stroke || stroke.size === 0) return;
+        pixelEditorState.selectionHistory.push(Array.from(stroke));
+        if (pixelEditorState.selectionHistory.length > 5) {
+            const oldestStroke = pixelEditorState.selectionHistory.shift();
+            oldestStroke.forEach((key) => pixelEditorState.permanentPixels.add(key));
+        }
+        rebuildPixelSelection();
+        renderPixelEditorCanvas();
+    }
+
+    function undoLastPixelSelection() {
+        if (pixelEditorState.polygonPoints.length > 0) {
+            pixelEditorState.polygonPoints.pop();
+            renderPixelEditorCanvas();
+            return;
+        }
+        if (pixelEditorState.selectionHistory.length === 0) return;
+        pixelEditorState.selectionHistory.pop();
+        rebuildPixelSelection();
+        renderPixelEditorCanvas();
+    }
+
+    function addPixelToStroke(x, y) {
+        if (x < 0 || y < 0 || x >= pixelEditorState.width || y >= pixelEditorState.height) return;
+        const key = getPixelKey(x, y);
+        pixelEditorState.currentStroke.add(key);
+        pixelEditorState.selectedPixels.add(key);
+    }
+
+    function addSquareToStroke(centerX, centerY) {
+        const size = pixelEditorState.brushSize;
+        const startX = centerX - Math.floor(size / 2);
+        const startY = centerY - Math.floor(size / 2);
+        for (let y = startY; y < startY + size; y += 1) {
+            for (let x = startX; x < startX + size; x += 1) {
+                addPixelToStroke(x, y);
+            }
+        }
+    }
+
+    function addCircleToStroke(centerX, centerY) {
+        const radius = (pixelEditorState.brushSize - 1) / 2;
+        const minX = Math.floor(centerX - radius);
+        const maxX = Math.ceil(centerX + radius);
+        const minY = Math.floor(centerY - radius);
+        const maxY = Math.ceil(centerY + radius);
+        for (let y = minY; y <= maxY; y += 1) {
+            for (let x = minX; x <= maxX; x += 1) {
+                const dx = x - centerX;
+                const dy = y - centerY;
+                if ((dx * dx) + (dy * dy) <= radius * radius + 0.25) {
+                    addPixelToStroke(x, y);
+                }
+            }
+        }
+    }
+
+    function addToolStampToStroke(x, y) {
+        if (pixelEditorState.tool === 'square') {
+            addSquareToStroke(x, y);
+            return;
+        }
+        if (pixelEditorState.tool === 'circle') {
+            addCircleToStroke(x, y);
+            return;
+        }
+        addPixelToStroke(x, y);
+    }
+
+    function addLineToStroke(x0, y0, x1, y1) {
+        let currentX = x0;
+        let currentY = y0;
+        const dx = Math.abs(x1 - x0);
+        const sx = x0 < x1 ? 1 : -1;
+        const dy = -Math.abs(y1 - y0);
+        const sy = y0 < y1 ? 1 : -1;
+        let err = dx + dy;
+
+        while (true) {
+            addToolStampToStroke(currentX, currentY);
+            if (currentX === x1 && currentY === y1) break;
+            const e2 = 2 * err;
+            if (e2 >= dy) {
+                err += dy;
+                currentX += sx;
+            }
+            if (e2 <= dx) {
+                err += dx;
+                currentY += sy;
+            }
+        }
+    }
+
+    function getCanvasPixelFromEvent(event) {
+        const rect = pixelEditorCanvas.getBoundingClientRect();
+        const x = Math.floor(((event.clientX - rect.left) / rect.width) * pixelEditorState.width);
+        const y = Math.floor(((event.clientY - rect.top) / rect.height) * pixelEditorState.height);
+        return {
+            x: Math.max(0, Math.min(pixelEditorState.width - 1, x)),
+            y: Math.max(0, Math.min(pixelEditorState.height - 1, y))
+        };
+    }
+
+    function startPixelSelection(event) {
+        if (event.button !== 0 || !pixelEditorState.imageData) return;
+        event.preventDefault();
+        const { x, y } = getCanvasPixelFromEvent(event);
+        if (pixelEditorState.tool === 'polygon') {
+            if (pixelEditorState.polygonPoints.length >= 3) {
+                const firstPoint = pixelEditorState.polygonPoints[0];
+                const dx = x - firstPoint.x;
+                const dy = y - firstPoint.y;
+                if ((dx * dx) + (dy * dy) <= 9) {
+                    finalizePolygonSelection();
+                    return;
+                }
+            }
+            pixelEditorState.polygonPoints.push({ x, y });
+            pixelEditorState.hoverPoint = { x, y };
+            renderPixelEditorCanvas();
+            return;
+        }
+        pixelEditorState.isDrawing = true;
+        pixelEditorState.currentStroke = new Set();
+        pixelEditorState.lastPoint = { x, y };
+        addToolStampToStroke(x, y);
+        renderPixelEditorCanvas();
+    }
+
+    function movePixelSelection(event) {
+        const { x, y } = getCanvasPixelFromEvent(event);
+        if (pixelEditorState.tool === 'polygon') {
+            pixelEditorState.hoverPoint = { x, y };
+            renderPixelEditorCanvas();
+            return;
+        }
+        if (!pixelEditorState.isDrawing || !pixelEditorState.currentStroke) return;
+        const lastPoint = pixelEditorState.lastPoint || { x, y };
+        addLineToStroke(lastPoint.x, lastPoint.y, x, y);
+        pixelEditorState.lastPoint = { x, y };
+        renderPixelEditorCanvas();
+    }
+
+    function endPixelSelection() {
+        if (!pixelEditorState.isDrawing) return;
+        pixelEditorState.isDrawing = false;
+        commitPixelStroke(pixelEditorState.currentStroke);
+        pixelEditorState.currentStroke = null;
+        pixelEditorState.lastPoint = null;
+    }
+
+    function finalizePolygonSelection() {
+        if (pixelEditorState.polygonPoints.length < 3) return;
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = pixelEditorState.width;
+        tempCanvas.height = pixelEditorState.height;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        tempCtx.fillStyle = '#ffffff';
+        tempCtx.beginPath();
+        tempCtx.moveTo(pixelEditorState.polygonPoints[0].x + 0.5, pixelEditorState.polygonPoints[0].y + 0.5);
+        for (let i = 1; i < pixelEditorState.polygonPoints.length; i += 1) {
+            tempCtx.lineTo(pixelEditorState.polygonPoints[i].x + 0.5, pixelEditorState.polygonPoints[i].y + 0.5);
+        }
+        tempCtx.closePath();
+        tempCtx.fill();
+
+        const tempData = tempCtx.getImageData(0, 0, pixelEditorState.width, pixelEditorState.height).data;
+        const stroke = new Set();
+        for (let y = 0; y < pixelEditorState.height; y += 1) {
+            for (let x = 0; x < pixelEditorState.width; x += 1) {
+                const alphaIndex = ((y * pixelEditorState.width) + x) * 4 + 3;
+                if (tempData[alphaIndex] > 0) {
+                    stroke.add(getPixelKey(x, y));
+                }
+            }
+        }
+
+        pixelEditorState.polygonPoints = [];
+        pixelEditorState.hoverPoint = null;
+        commitPixelStroke(stroke);
+    }
+
+    function setPixelEditorTool(tool) {
+        pixelEditorState.tool = tool;
+        pixelEditorState.isDrawing = false;
+        pixelEditorState.currentStroke = null;
+        pixelEditorState.lastPoint = null;
+        pixelEditorState.polygonPoints = [];
+        pixelEditorState.hoverPoint = null;
+        renderPixelEditorCanvas();
+    }
+
+    function zoomPixelEditor(multiplier) {
+        pixelEditorState.zoom = Math.max(1, Math.min(40, pixelEditorState.zoom * multiplier));
+        updatePixelEditorZoomUI();
+    }
+
+    function resetPixelEditorZoom() {
+        pixelEditorState.zoom = 1;
+        updatePixelEditorZoomUI();
+    }
+
+    async function openPixelEditor({ imageType, imageUrl, colorUrl = null, className = null, title }) {
+        try {
+            const image = await loadImage(withAssetVersion(imageUrl));
+            pixelEditorState.imageType = imageType;
+            pixelEditorState.imageUrl = imageUrl;
+            pixelEditorState.colorUrl = colorUrl;
+            pixelEditorState.className = className;
+            pixelEditorState.width = image.naturalWidth || image.width;
+            pixelEditorState.height = image.naturalHeight || image.height;
+            pixelEditorState.zoom = 1;
+            pixelEditorState.isDirty = false;
+            pixelEditorState.selectedPixels = new Set();
+            pixelEditorState.permanentPixels = new Set();
+            pixelEditorState.selectionHistory = [];
+            pixelEditorState.currentStroke = null;
+            pixelEditorState.lastPoint = null;
+            pixelEditorState.tool = 'single';
+            pixelEditorState.brushSize = 1;
+            pixelEditorState.polygonPoints = [];
+            pixelEditorState.hoverPoint = null;
+            pixelBrushSizeInput.value = '1';
+
+            pixelEditorCanvas.width = pixelEditorState.width;
+            pixelEditorCanvas.height = pixelEditorState.height;
+
+            const ctx = pixelEditorCanvas.getContext('2d', { willReadFrequently: true });
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(image, 0, 0);
+            pixelEditorState.imageData = ctx.getImageData(0, 0, pixelEditorState.width, pixelEditorState.height);
+
+            pixelEditorTitle.textContent = title;
+            pixelEditorSubtitle.textContent = imageType === 'mask'
+                ? 'Edit the grayscale mask directly. Value 0 is black and 255 is white.'
+                : 'Edit the grayscale costmap directly. Value 0 is low cost and 255 is high cost.';
+
+            renderPixelEditorCanvas();
+            pixelEditorModal.classList.remove('hidden');
+            pixelEditorModal.classList.add('flex');
+            document.body.style.overflow = 'hidden';
+        } catch (error) {
+            alert(`Failed to open editor: ${error.message}`);
+        }
+    }
+
+    function closePixelEditor() {
+        pixelEditorModal.classList.add('hidden');
+        pixelEditorModal.classList.remove('flex');
+        if (classDetailModal.classList.contains('hidden') && imageViewerModal.classList.contains('hidden')) {
+            document.body.style.overflow = '';
+        }
+    }
+
+    function applyPixelValueToSelection() {
+        if (!pixelEditorState.imageData || pixelEditorState.selectedPixels.size === 0) return;
+
+        const value = Number(pixelValueInput.value);
+        if (!Number.isFinite(value) || value < 0 || value > 255) {
+            alert('Enter a value between 0 and 255.');
+            return;
+        }
+
+        const clamped = Math.round(value);
+        for (const key of pixelEditorState.selectedPixels) {
+            const { x, y } = parsePixelKey(key);
+            const index = (y * pixelEditorState.width + x) * 4;
+            pixelEditorState.imageData.data[index] = clamped;
+            pixelEditorState.imageData.data[index + 1] = clamped;
+            pixelEditorState.imageData.data[index + 2] = clamped;
+            pixelEditorState.imageData.data[index + 3] = 255;
+        }
+
+        pixelEditorState.isDirty = true;
+        clearPixelSelection();
+        renderPixelEditorCanvas();
+    }
+
+    function refreshMaskPreview(className) {
+        if (!currentResultData) return;
+        const maskUrl = (currentResultData.refined_masks || currentResultData.local_masks || {})[className];
+        if (!maskUrl) return;
+
+        Array.from(resultsMasksContainer.querySelectorAll('[data-class-name]')).forEach((card) => {
+            if (card.dataset.className !== className) return;
+            const img = card.querySelector('img');
+            if (img) img.src = withAssetVersion(maskUrl);
+        });
+
+        if (!classDetailModal.classList.contains('hidden') && classDetailTitle.textContent === `Details for: ${className}`) {
+            detailRefinedOverlayMask.src = withAssetVersion(maskUrl);
+        }
+    }
+
+    async function savePixelEditorChanges() {
+        if (!pixelEditorState.isDirty || !pixelEditorState.imageData) return;
+
+        pixelSaveBtn.disabled = true;
+        pixelEditorStatus.textContent = 'Saving changes...';
+
+        try {
+            const imageDataUrl = pixelEditorCanvas.toDataURL('image/png');
+            const response = await fetch(`${API_BASE_URL}/api/update-edited-image`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    image_type: pixelEditorState.imageType,
+                    image_url: pixelEditorState.imageUrl,
+                    image_data: imageDataUrl
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to save image changes.');
+
+            bumpAssetVersion(data.image_url || pixelEditorState.imageUrl);
+            if (data.colored_url) bumpAssetVersion(data.colored_url);
+
+            pixelEditorState.isDirty = false;
+            updatePixelEditorSelectionUI();
+
+            if (pixelEditorState.imageType === 'mask' && pixelEditorState.className) {
+                refreshMaskPreview(pixelEditorState.className);
+            } else {
+                if (data.image_url) currentCostmapUrl = data.image_url;
+                if (data.image_url) currentCostmapOverlayUrl = data.image_url;
+                if (data.colored_url) currentCostmapOverlayFallbackUrl = data.colored_url;
+                updateCostmapOverlayUI();
+            }
+
+            pixelEditorStatus.textContent = 'Changes saved.';
+        } catch (error) {
+            pixelEditorStatus.textContent = 'Save failed.';
+            alert(`Save error: ${error.message}`);
+        } finally {
+            pixelSaveBtn.disabled = !pixelEditorState.isDirty;
+        }
     }
     async function handleDownloadCostmap() {
         if (!currentCostmapUrl) {
@@ -2193,6 +2700,69 @@ document.addEventListener('DOMContentLoaded', () => {
         if (card) showClassDetailModal(card.dataset.className);
     });
     closeClassDetailBtn.addEventListener('click', hideClassDetailModal);
+    editMaskBtn.addEventListener('click', async () => {
+        const className = editMaskBtn.dataset.className;
+        if (!className || !currentResultData) return;
+        const maskUrl = (currentResultData.refined_masks || currentResultData.local_masks || {})[className];
+        if (!maskUrl) {
+            alert(`Mask for "${className}" is not available.`);
+            return;
+        }
+        hideClassDetailModal();
+        await openPixelEditor({
+            imageType: 'mask',
+            imageUrl: maskUrl,
+            className,
+            title: `Edit Mask: ${className}`
+        });
+    });
+
+    editCostmapPixelsBtn.addEventListener('click', async () => {
+        if (!currentCostmapUrl) {
+            alert('Generate or load a costmap first.');
+            return;
+        }
+        await openPixelEditor({
+            imageType: 'costmap',
+            imageUrl: currentCostmapUrl,
+            colorUrl: currentCostmapOverlayFallbackUrl,
+            title: 'Edit Costmap Pixels'
+        });
+    });
+
+    closePixelEditorBtn.addEventListener('click', closePixelEditor);
+    pixelToolButtons.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-tool]');
+        if (!button) return;
+        setPixelEditorTool(button.dataset.tool);
+    });
+    pixelBrushSizeInput.addEventListener('input', () => {
+        pixelEditorState.brushSize = Math.max(1, Math.min(15, Number(pixelBrushSizeInput.value) || 1));
+        updatePixelEditorSelectionUI();
+    });
+    pixelClosePolygonBtn.addEventListener('click', finalizePolygonSelection);
+    pixelZoomInBtn.addEventListener('click', () => zoomPixelEditor(1.5));
+    pixelZoomOutBtn.addEventListener('click', () => zoomPixelEditor(1 / 1.5));
+    pixelZoomResetBtn.addEventListener('click', resetPixelEditorZoom);
+    pixelClearSelectionBtn.addEventListener('click', clearPixelSelection);
+    pixelUndoSelectionBtn.addEventListener('click', undoLastPixelSelection);
+    pixelApplyValueBtn.addEventListener('click', applyPixelValueToSelection);
+    pixelSaveBtn.addEventListener('click', savePixelEditorChanges);
+
+    pixelEditorCanvas.addEventListener('mousedown', startPixelSelection);
+    pixelEditorCanvas.addEventListener('mousemove', movePixelSelection);
+    pixelEditorCanvas.addEventListener('mouseleave', () => {
+        if (pixelEditorState.tool !== 'polygon') return;
+        pixelEditorState.hoverPoint = null;
+        renderPixelEditorCanvas();
+    });
+    pixelEditorCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    pixelEditorCanvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        zoomPixelEditor(e.deltaY < 0 ? 1.2 : 1 / 1.2);
+    }, { passive: false });
+    window.addEventListener('mouseup', endPixelSelection);
+    window.addEventListener('mouseleave', endPixelSelection);
 
     semsegSlider.addEventListener('input', (e) => {
         detailSemsegOverlayMask.style.opacity = e.target.value / 100;

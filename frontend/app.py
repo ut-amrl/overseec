@@ -15,11 +15,13 @@ import random
 from PIL import Image, ImageDraw, ImageOps
 import io
 import math
+import base64
 from threading import Thread
 import requests
 import numpy as np
 import json
 import re
+from urllib.parse import urlparse
 import sys
 import logging
 import multiprocessing
@@ -27,7 +29,16 @@ from multiprocessing import Queue
 import importlib.util
 import matplotlib.pyplot as plt
 import cv2
-import osgeo.gdal as gdal
+
+IMAGE_EDIT_TEST_MODE = os.environ.get("OVERSEEC_IMAGE_EDIT_TEST_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+try:
+    import osgeo.gdal as gdal
+    HAS_GDAL = True
+except ImportError:
+    gdal = None
+    HAS_GDAL = False
+    print("WARNING: GDAL library not found. GeoTIFF export features will be disabled.")
 # --- Disable Flask's default request logger ---
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
@@ -65,9 +76,17 @@ try:
 except ImportError:
     HAS_PYNVML = False
 
-from overseec.overseec_config import AllConfig
-from overseec.modules.llm.vllm_client import overseec_query_llm
-from overseec.OVerSeeC import OVerSeeC
+try:
+    from overseec.overseec_config import AllConfig
+    from overseec.modules.llm.vllm_client import overseec_query_llm
+    from overseec.OVerSeeC import OVerSeeC
+    HAS_PIPELINE_DEPS = True
+except Exception as e:
+    AllConfig = None
+    OVerSeeC = None
+    overseec_query_llm = None
+    HAS_PIPELINE_DEPS = False
+    print(f"WARNING: Full OVerSeeC pipeline dependencies unavailable. Pipeline features will be disabled. Error: {e}")
 
 # --- Live Console Log Capture ---
 class ConsoleLog:
@@ -351,6 +370,42 @@ def create_colorful_placeholder(path, size=(512, 512)):
         draw.line((0, i, size[0], i), fill=(random.randint(50, 255), random.randint(50, 255), random.randint(50, 255)), width=2)
     img.save(path, 'PNG')
 
+def _normalize_costmap_to_heatmap(costmap_raw):
+    min_val, max_val = costmap_raw.min(), costmap_raw.max()
+    if max_val == min_val:
+        normalized_costmap = np.zeros_like(costmap_raw, dtype=np.float32)
+    else:
+        normalized_costmap = (costmap_raw - min_val) / (max_val - min_val)
+
+    cmap = plt.get_cmap('hot')
+    heatmap_rgb = (cmap(normalized_costmap)[:, :, :3] * 255).astype(np.uint8)
+    return normalized_costmap, heatmap_rgb
+
+def _resolve_results_image_path(image_url):
+    parsed = urlparse(image_url or "")
+    clean_path = parsed.path
+    if not clean_path.startswith("/results/"):
+        raise ValueError("Only files inside /results/ can be edited.")
+
+    target_path = os.path.realpath(os.path.join(_basedir, clean_path.lstrip('/')))
+    real_results = os.path.realpath(RESULTS_FOLDER)
+    if not target_path.startswith(real_results):
+        raise ValueError("Invalid image path.")
+    if not os.path.exists(target_path):
+        raise FileNotFoundError(f"Image not found: {clean_path}")
+    return clean_path, target_path
+
+def _save_costmap_color_from_bw(grayscale_array, color_path):
+    normalized_costmap = grayscale_array.astype(np.float32) / 255.0
+    _, heatmap_rgb = _normalize_costmap_to_heatmap(normalized_costmap)
+    Image.fromarray(heatmap_rgb).save(color_path)
+
+def _feature_unavailable(message, status_code=503):
+    payload = {"error": message}
+    if IMAGE_EDIT_TEST_MODE:
+        payload["test_mode"] = True
+    return jsonify(payload), status_code
+
 # --- Real Rasterization Logic ---
 def deg2num(lat_deg, lon_deg, zoom):
     lat_rad = math.radians(lat_deg)
@@ -537,6 +592,9 @@ def get_tiff_files():
 
 @app.route("/api/process-prompt", methods=["POST"])
 def process_prompt():
+    if not HAS_PIPELINE_DEPS or overseec_query_llm is None:
+        return _feature_unavailable("LLM prompt processing is unavailable in the image editing test environment.")
+
     data = request.json
     prompt = data.get("prompt", "")
     if not prompt: return jsonify({"error": "Prompt cannot be empty."}), 400
@@ -560,6 +618,9 @@ def process_prompt():
 # --- Pipeline Endpoints ---
 @app.route("/api/run-pipeline", methods=["POST"])
 def run_pipeline():
+    if not HAS_PIPELINE_DEPS or AllConfig is None or OVerSeeC is None:
+        return _feature_unavailable("Model pipeline execution is unavailable in the image editing test environment.")
+
     data = request.json
     if not data.get("tiff_file") or not data.get("classes"):
         return jsonify({"error": "Missing TIFF file or classes."}), 400
@@ -846,14 +907,7 @@ def generate_final_costmap():
             device=device
         )
 
-        min_val, max_val = costmap_raw.min(), costmap_raw.max()
-        if max_val == min_val:
-            normalized_costmap = np.zeros_like(costmap_raw, dtype=np.float32)
-        else:
-            normalized_costmap = (costmap_raw - min_val) / (max_val - min_val)
-        
-        cmap = plt.get_cmap('hot')
-        heatmap_rgb = (cmap(normalized_costmap)[:, :, :3] * 255).astype(np.uint8)
+        normalized_costmap, heatmap_rgb = _normalize_costmap_to_heatmap(costmap_raw)
         
         # Save a pure heatmap image (no RGB blended in).
         # Client-side UI can overlay it over the RGB preview with an opacity slider.
@@ -890,6 +944,56 @@ def generate_final_costmap():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"An error occurred during costmap generation: {e}"}), 500
+
+@app.route("/api/update-edited-image", methods=["POST"])
+def update_edited_image():
+    data = request.json or {}
+    image_url = data.get("image_url", "")
+    image_type = data.get("image_type", "")
+    image_data = data.get("image_data", "")
+
+    if not image_url or not image_type or not image_data:
+        return jsonify({"error": "Missing image_url, image_type, or image_data."}), 400
+
+    if image_type not in {"mask", "costmap"}:
+        return jsonify({"error": "image_type must be 'mask' or 'costmap'."}), 400
+
+    try:
+        clean_path, target_path = _resolve_results_image_path(image_url)
+
+        if "," not in image_data:
+            return jsonify({"error": "Invalid image data."}), 400
+
+        encoded = image_data.split(",", 1)[1]
+        decoded = base64.b64decode(encoded)
+        grayscale_array = np.array(Image.open(io.BytesIO(decoded)).convert("L"), dtype=np.uint8)
+        Image.fromarray(grayscale_array, mode="L").save(target_path)
+
+        response = {"image_url": clean_path}
+
+        if image_type == "mask":
+            npy_path = os.path.splitext(target_path)[0] + ".npy"
+            if os.path.exists(npy_path):
+                np.save(npy_path, grayscale_array.astype(np.float32) / 255.0)
+        else:
+            if clean_path.endswith("_bw.png"):
+                color_path = target_path.replace("_bw.png", ".png")
+                color_url = clean_path.replace("_bw.png", ".png")
+            elif clean_path.endswith("costmap_bw.png"):
+                color_path = target_path.replace("costmap_bw.png", "costmap.png")
+                color_url = clean_path.replace("costmap_bw.png", "costmap.png")
+            else:
+                color_path = None
+                color_url = None
+
+            if color_path and color_url:
+                _save_costmap_color_from_bw(grayscale_array, color_path)
+                response["colored_url"] = color_url
+
+        return jsonify(response)
+    except Exception as e:
+        print(f"!!! IMAGE EDIT SAVE ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # [MODIFIED] Planning Endpoint
 @app.route("/api/plan-path", methods=["POST"])
@@ -1355,6 +1459,9 @@ def download_costmap():
         return send_file(costmap_path, as_attachment=True)
 
     elif format_choice == "tiff":
+        if not HAS_GDAL:
+            return _feature_unavailable("GeoTIFF download is unavailable because GDAL is not installed.")
+
         if not tiff_filename:
             return jsonify({"error": "Original GeoTIFF filename required for TIFF download."}), 400
 
@@ -1610,7 +1717,7 @@ def download_plan():
                 shutil.copy(bw_path, os.path.join(costmap_dest, "costmap_bw.png"))
         
         # --- 5. Costmap TIFF ---
-        if options.get("costmap_tiff") and os.path.exists(original_tiff_path):
+        if options.get("costmap_tiff") and os.path.exists(original_tiff_path) and HAS_GDAL:
              # Generate GeoTIFF from costmap (using logic from download_geotiff)
              # Needs gdal
              try:

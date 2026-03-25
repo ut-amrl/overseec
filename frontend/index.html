@@ -151,6 +151,14 @@
             cursor: crosshair;
             pointer-events: auto;
         }
+
+        #pixel-editor-canvas {
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            cursor: crosshair;
+            display: block;
+            background: #111827;
+        }
     </style>
 </head>
 
@@ -299,14 +307,102 @@
         </div>
     </div>
 
+    <div id="pixel-editor-modal"
+        class="fixed inset-0 bg-black bg-opacity-80 z-[95] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-7xl h-[92vh] flex flex-col">
+            <div class="flex justify-between items-center border-b border-gray-300 pb-3 mb-4">
+                <div>
+                    <h2 id="pixel-editor-title" class="text-2xl font-bold">Pixel Editor</h2>
+                    <p id="pixel-editor-subtitle" class="text-sm text-gray-500 mt-1">Select pixels, then apply a value.</p>
+                </div>
+                <button id="close-pixel-editor-btn"
+                    class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+            </div>
+            <div class="flex flex-1 overflow-hidden gap-6 min-h-0">
+                <div class="w-80 shrink-0 border-r border-gray-200 pr-6 space-y-4 overflow-y-auto">
+                    <div class="bg-gray-50 border rounded-xl p-4 space-y-3">
+                        <h3 class="font-semibold text-gray-800">Selection Tools</h3>
+                        <p class="text-sm text-gray-600">Hold or click the left mouse button to add pixels to the current selection.</p>
+                        <div id="pixel-tool-buttons" class="grid grid-cols-2 gap-2">
+                            <button data-tool="single"
+                                class="pixel-tool-btn bg-blue-600 text-white font-semibold py-2 px-3 rounded-lg hover:bg-blue-700 transition">Single Pixel</button>
+                            <button data-tool="square"
+                                class="pixel-tool-btn bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg hover:bg-gray-300 transition">Square</button>
+                            <button data-tool="circle"
+                                class="pixel-tool-btn bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg hover:bg-gray-300 transition">Circle</button>
+                            <button data-tool="polygon"
+                                class="pixel-tool-btn bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg hover:bg-gray-300 transition">Closed Polygon</button>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between text-sm text-gray-700">
+                                <span>Brush size</span>
+                                <span id="pixel-brush-size-value" class="font-mono">1 px</span>
+                            </div>
+                            <input id="pixel-brush-size-input" type="range" min="1" max="15" step="1" value="1"
+                                class="w-full">
+                            <p id="pixel-tool-hint" class="text-xs text-gray-500">Single pixel mode selects exactly one pixel per hit.</p>
+                        </div>
+                        <button id="pixel-close-polygon-btn"
+                            class="w-full bg-indigo-600 text-white font-semibold py-2 px-3 rounded-lg hover:bg-indigo-700 transition disabled:bg-gray-400"
+                            disabled>Close Polygon</button>
+                        <div class="grid grid-cols-3 gap-2">
+                            <button id="pixel-zoom-out-btn"
+                                class="bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg hover:bg-gray-300 transition">-</button>
+                            <button id="pixel-zoom-reset-btn"
+                                class="bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg hover:bg-gray-300 transition">100%</button>
+                            <button id="pixel-zoom-in-btn"
+                                class="bg-gray-200 text-gray-800 font-semibold py-2 px-3 rounded-lg hover:bg-gray-300 transition">+</button>
+                        </div>
+                        <div class="text-sm text-gray-700">Zoom: <span id="pixel-zoom-label" class="font-mono">100%</span></div>
+                        <div class="text-sm text-gray-700">Selected pixels: <span id="pixel-selection-count"
+                                class="font-mono">0</span></div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="pixel-clear-selection-btn"
+                                class="bg-amber-500 text-black font-semibold py-2 px-3 rounded-lg hover:bg-amber-600 transition">Clear</button>
+                            <button id="pixel-undo-selection-btn"
+                                class="bg-gray-700 text-white font-semibold py-2 px-3 rounded-lg hover:bg-gray-800 transition disabled:bg-gray-400"
+                                disabled>Undo</button>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 border rounded-xl p-4 space-y-3">
+                        <h3 class="font-semibold text-gray-800">Apply Value</h3>
+                        <label for="pixel-value-input" class="block text-sm text-gray-600">Grayscale value (0-255)</label>
+                        <input id="pixel-value-input" type="number" min="0" max="255" step="1" value="255"
+                            class="w-full p-2 border border-gray-300 rounded-lg">
+                        <button id="pixel-apply-value-btn"
+                            class="w-full bg-blue-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-blue-700 transition disabled:bg-gray-400"
+                            disabled>Apply To Selection</button>
+                    </div>
+                    <div class="bg-gray-50 border rounded-xl p-4 space-y-3">
+                        <h3 class="font-semibold text-gray-800">Save</h3>
+                        <p id="pixel-editor-status" class="text-sm text-gray-600">No local changes yet.</p>
+                        <button id="pixel-save-btn"
+                            class="w-full bg-emerald-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-emerald-700 transition disabled:bg-gray-400"
+                            disabled>Save Changes</button>
+                    </div>
+                </div>
+                <div class="flex-1 min-w-0 bg-gray-100 rounded-2xl border overflow-auto p-4">
+                    <div id="pixel-editor-stage"
+                        class="min-w-full min-h-full flex items-start justify-start rounded-xl bg-[radial-gradient(circle_at_top_left,_#f9fafb,_#e5e7eb)] p-4">
+                        <canvas id="pixel-editor-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Class Detail Modal -->
     <div id="class-detail-modal"
         class="fixed inset-0 bg-black bg-opacity-70 z-[70] hidden items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-4xl h-[90vh] flex flex-col">
             <div class="flex justify-between items-center border-b border-gray-300 pb-3 mb-4">
                 <h2 id="class-detail-title" class="text-2xl font-bold">Class Details</h2>
-                <button id="close-class-detail-btn"
-                    class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+                <div class="flex items-center gap-3">
+                    <button id="edit-mask-btn"
+                        class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition">Edit Mask</button>
+                    <button id="close-class-detail-btn"
+                        class="text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+                </div>
             </div>
             <div class="flex-grow overflow-y-auto space-y-6 pr-2">
                 <div>
@@ -612,6 +708,10 @@
                         <div class="flex justify-between items-center mb-4 border-b pb-3">
                             <h2 class="text-2xl font-bold">Final Costmap</h2>
                             <div class="flex items-center gap-2">
+                                <button id="edit-costmap-pixels-btn"
+                                    class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition">
+                                    Edit Pixels
+                                </button>
                                 <select id="download-format" class="bg-gray-800 text-white p-2 rounded-lg">
                                     <option value="png">PNG</option>
                                     <option value="tiff">GeoTIFF</option>

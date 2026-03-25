@@ -1,0 +1,17 @@
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    OVERSEEC_IMAGE_EDIT_TEST_MODE=1
+
+WORKDIR /workspace/overseec
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements-image-edit-test.txt /tmp/requirements-image-edit-test.txt
+RUN python -m pip install --upgrade pip setuptools wheel && \
+    python -m pip install -r /tmp/requirements-image-edit-test.txt
+
+CMD ["bash"]
