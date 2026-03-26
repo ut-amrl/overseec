@@ -111,6 +111,9 @@ document.addEventListener('DOMContentLoaded', () => {
         pixelEditorTitle = document.getElementById('pixel-editor-title'),
         pixelEditorSubtitle = document.getElementById('pixel-editor-subtitle'),
         closePixelEditorBtn = document.getElementById('close-pixel-editor-btn'),
+        pixelEditorViewport = document.getElementById('pixel-editor-viewport'),
+        pixelEditorStage = document.getElementById('pixel-editor-stage'),
+        pixelEditorBackground = document.getElementById('pixel-editor-background'),
         pixelEditorCanvas = document.getElementById('pixel-editor-canvas'),
         pixelSelectionCount = document.getElementById('pixel-selection-count'),
         pixelToolButtons = document.getElementById('pixel-tool-buttons'),
@@ -118,6 +121,8 @@ document.addEventListener('DOMContentLoaded', () => {
         pixelBrushSizeValue = document.getElementById('pixel-brush-size-value'),
         pixelToolHint = document.getElementById('pixel-tool-hint'),
         pixelClosePolygonBtn = document.getElementById('pixel-close-polygon-btn'),
+        pixelOverlayOpacitySlider = document.getElementById('pixel-overlay-opacity-slider'),
+        pixelOverlayOpacityValue = document.getElementById('pixel-overlay-opacity-value'),
         pixelZoomLabel = document.getElementById('pixel-zoom-label'),
         pixelZoomOutBtn = document.getElementById('pixel-zoom-out-btn'),
         pixelZoomResetBtn = document.getElementById('pixel-zoom-reset-btn'),
@@ -187,7 +192,14 @@ document.addEventListener('DOMContentLoaded', () => {
         tool: 'single',
         brushSize: 1,
         polygonPoints: [],
-        hoverPoint: null
+        hoverPoint: null,
+        backgroundUrl: '',
+        overlayOpacity: 0.6,
+        isPanning: false,
+        panStartX: 0,
+        panStartY: 0,
+        panScrollLeft: 0,
+        panScrollTop: 0
     };
 
     // --- Helper Functions ---
@@ -1095,6 +1107,7 @@ document.addEventListener('DOMContentLoaded', () => {
         pixelEditorStatus.textContent = pixelEditorState.isDirty ? 'Local changes ready to save.' : 'No local changes yet.';
         pixelBrushSizeInput.disabled = !['square', 'circle'].includes(pixelEditorState.tool);
         pixelClosePolygonBtn.disabled = pixelEditorState.tool !== 'polygon' || pixelEditorState.polygonPoints.length < 3;
+        pixelOverlayOpacityValue.textContent = `${Math.round(pixelEditorState.overlayOpacity * 100)}%`;
 
         Array.from(pixelToolButtons.querySelectorAll('[data-tool]')).forEach((button) => {
             const isActive = button.dataset.tool === pixelEditorState.tool;
@@ -1121,8 +1134,13 @@ document.addEventListener('DOMContentLoaded', () => {
     function updatePixelEditorZoomUI() {
         const zoomPercent = Math.round(pixelEditorState.zoom * 100);
         pixelZoomLabel.textContent = `${zoomPercent}%`;
+        pixelEditorStage.style.width = `${pixelEditorState.width * pixelEditorState.zoom + 32}px`;
+        pixelEditorStage.style.height = `${pixelEditorState.height * pixelEditorState.zoom + 32}px`;
+        pixelEditorBackground.style.width = `${pixelEditorState.width * pixelEditorState.zoom}px`;
+        pixelEditorBackground.style.height = `${pixelEditorState.height * pixelEditorState.zoom}px`;
         pixelEditorCanvas.style.width = `${pixelEditorState.width * pixelEditorState.zoom}px`;
         pixelEditorCanvas.style.height = `${pixelEditorState.height * pixelEditorState.zoom}px`;
+        pixelEditorCanvas.style.opacity = pixelEditorState.overlayOpacity.toString();
     }
 
     function renderPixelEditorCanvas() {
@@ -1281,8 +1299,44 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    function shouldStartPixelPan(event) {
+        return event.button === 2 || (event.button === 0 && event.shiftKey);
+    }
+
+    function beginPixelPan(event) {
+        pixelEditorState.isPanning = true;
+        pixelEditorState.panStartX = event.clientX;
+        pixelEditorState.panStartY = event.clientY;
+        pixelEditorState.panScrollLeft = pixelEditorViewport.scrollLeft;
+        pixelEditorState.panScrollTop = pixelEditorViewport.scrollTop;
+        pixelEditorViewport.style.cursor = 'grabbing';
+        pixelEditorCanvas.style.cursor = 'grabbing';
+    }
+
+    function movePixelPan(event) {
+        if (!pixelEditorState.isPanning) return;
+        event.preventDefault();
+        const deltaX = event.clientX - pixelEditorState.panStartX;
+        const deltaY = event.clientY - pixelEditorState.panStartY;
+        pixelEditorViewport.scrollLeft = pixelEditorState.panScrollLeft - deltaX;
+        pixelEditorViewport.scrollTop = pixelEditorState.panScrollTop - deltaY;
+    }
+
+    function endPixelPan() {
+        if (!pixelEditorState.isPanning) return;
+        pixelEditorState.isPanning = false;
+        pixelEditorViewport.style.cursor = 'grab';
+        pixelEditorCanvas.style.cursor = 'crosshair';
+    }
+
     function startPixelSelection(event) {
-        if (event.button !== 0 || !pixelEditorState.imageData) return;
+        if (!pixelEditorState.imageData) return;
+        if (shouldStartPixelPan(event)) {
+            event.preventDefault();
+            beginPixelPan(event);
+            return;
+        }
+        if (event.button !== 0) return;
         event.preventDefault();
         const { x, y } = getCanvasPixelFromEvent(event);
         if (pixelEditorState.tool === 'polygon') {
@@ -1308,6 +1362,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function movePixelSelection(event) {
+        if (pixelEditorState.isPanning) return;
         const { x, y } = getCanvasPixelFromEvent(event);
         if (pixelEditorState.tool === 'polygon') {
             pixelEditorState.hoverPoint = { x, y };
@@ -1401,7 +1456,11 @@ document.addEventListener('DOMContentLoaded', () => {
             pixelEditorState.brushSize = 1;
             pixelEditorState.polygonPoints = [];
             pixelEditorState.hoverPoint = null;
+            pixelEditorState.overlayOpacity = 0.6;
+            pixelEditorState.isPanning = false;
+            pixelEditorState.backgroundUrl = '';
             pixelBrushSizeInput.value = '1';
+            pixelOverlayOpacitySlider.value = '60';
 
             pixelEditorCanvas.width = pixelEditorState.width;
             pixelEditorCanvas.height = pixelEditorState.height;
@@ -1410,6 +1469,22 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.imageSmoothingEnabled = false;
             ctx.drawImage(image, 0, 0);
             pixelEditorState.imageData = ctx.getImageData(0, 0, pixelEditorState.width, pixelEditorState.height);
+
+            const rgbPreviewImg = tiffPreviewContainer.querySelector('img');
+            const tiffName = getCurrentTiffName();
+            pixelEditorState.backgroundUrl = (rgbPreviewImg ? rgbPreviewImg.src : '') || getPreviewUrlForTiff(tiffName) || '';
+            if (pixelEditorState.backgroundUrl) {
+                pixelEditorBackground.src = pixelEditorState.backgroundUrl.startsWith('data:')
+                    ? pixelEditorState.backgroundUrl
+                    : pixelEditorState.backgroundUrl;
+                pixelEditorBackground.classList.remove('hidden');
+            } else {
+                pixelEditorBackground.src = '';
+                pixelEditorBackground.classList.add('hidden');
+            }
+            pixelEditorViewport.scrollLeft = 0;
+            pixelEditorViewport.scrollTop = 0;
+            pixelEditorViewport.style.cursor = 'grab';
 
             pixelEditorTitle.textContent = title;
             pixelEditorSubtitle.textContent = imageType === 'mask'
@@ -1426,6 +1501,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function closePixelEditor() {
+        endPixelPan();
         pixelEditorModal.classList.add('hidden');
         pixelEditorModal.classList.remove('flex');
         if (classDetailModal.classList.contains('hidden') && imageViewerModal.classList.contains('hidden')) {
@@ -2741,6 +2817,11 @@ document.addEventListener('DOMContentLoaded', () => {
         updatePixelEditorSelectionUI();
     });
     pixelClosePolygonBtn.addEventListener('click', finalizePolygonSelection);
+    pixelOverlayOpacitySlider.addEventListener('input', () => {
+        pixelEditorState.overlayOpacity = Math.max(0, Math.min(1, (Number(pixelOverlayOpacitySlider.value) || 0) / 100));
+        updatePixelEditorZoomUI();
+        updatePixelEditorSelectionUI();
+    });
     pixelZoomInBtn.addEventListener('click', () => zoomPixelEditor(1.5));
     pixelZoomOutBtn.addEventListener('click', () => zoomPixelEditor(1 / 1.5));
     pixelZoomResetBtn.addEventListener('click', resetPixelEditorZoom);
@@ -2761,8 +2842,11 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         zoomPixelEditor(e.deltaY < 0 ? 1.2 : 1 / 1.2);
     }, { passive: false });
+    window.addEventListener('mousemove', movePixelPan);
     window.addEventListener('mouseup', endPixelSelection);
+    window.addEventListener('mouseup', endPixelPan);
     window.addEventListener('mouseleave', endPixelSelection);
+    window.addEventListener('blur', endPixelPan);
 
     semsegSlider.addEventListener('input', (e) => {
         detailSemsegOverlayMask.style.opacity = e.target.value / 100;
