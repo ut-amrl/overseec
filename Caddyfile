@@ -1,3 +1,8 @@
 {$SITE_HOSTNAME} {
-    reverse_proxy app:5002
+	basic_auth * {
+		{$CADDY_USER} {$CADDY_PASSWORD_HASH}
+	}
+
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy app:5002
 }
