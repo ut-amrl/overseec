@@ -31,22 +31,15 @@ document.addEventListener('DOMContentLoaded', () => {
         cancelPipelineBtn = document.getElementById('cancel-pipeline-btn');
 
     const paramInputs = {
-        areal_threshold: document.getElementById('areal-threshold'),
-        linear_threshold: document.getElementById('linear-threshold'),
+        sam3_confidence_threshold: document.getElementById('sam3-confidence-threshold'),
+        sam3_tile_batch_size: document.getElementById('sam3-tile-batch-size'),
         refiner_areal_threshold: document.getElementById('refiner-areal-threshold'),
         refiner_linear_threshold: document.getElementById('refiner-linear-threshold'),
-        model_name: document.getElementById('model-name'),
-        mask_refiner_name: document.getElementById('mask-refiner-name'),
-        sam_model: document.getElementById('sam-model'),
         cmap_device: document.getElementById('cmap-device'),
-        sam_device: document.getElementById('sam-device'),
         semseg_device: document.getElementById('semseg-device'),
         semseg_tile_size: document.getElementById('semseg-tile-size'),
         semseg_stride: document.getElementById('semseg-stride'),
-        refiner_tile_size: document.getElementById('refiner-tile-size'),
-        refiner_stride: document.getElementById('refiner-stride'),
         semseg_combine_method: document.getElementById('semseg-combine-method'),
-        refiner_combine_method: document.getElementById('refiner-combine-method'),
     };
 
     const gpuModal = document.getElementById('gpu-modal'),
@@ -361,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateDeviceDropdowns(gpuCount) {
-        const dropdowns = [paramInputs.cmap_device, paramInputs.sam_device, paramInputs.semseg_device];
+        const dropdowns = [paramInputs.cmap_device, paramInputs.semseg_device];
         dropdowns.forEach(dd => {
             const currentVal = dd.value;
             dd.innerHTML = '';
@@ -382,11 +375,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 classItem.className = 'class-item p-3 bg-gray-100 rounded-lg border w-full';
                 classItem.dataset.index = index;
 
-                let thresholdValue, isReadOnly = true;
-                if (classObj.type === 'Areal') thresholdValue = paramInputs.areal_threshold.value;
-                else if (classObj.type === 'Linear') thresholdValue = paramInputs.linear_threshold.value;
-                else { thresholdValue = classObj.threshold; isReadOnly = false; }
-
                 const hexColor = rgbToHex(classObj.color);
 
                 classItem.innerHTML = `
@@ -401,7 +389,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             <option value="Linear" ${classObj.type === 'Linear' ? 'selected' : ''}>Linear</option>
                             <option value="Custom" ${classObj.type === 'Custom' ? 'selected' : ''}>Custom</option>
                         </select>
-                        <input type="number" step="0.1" value="${thresholdValue}" ${isReadOnly ? 'readonly' : ''} class="class-threshold-input w-full p-1.5 border border-gray-300 rounded-md text-sm ${isReadOnly ? 'bg-gray-200' : 'bg-white'}">
                     </div>
                 `;
                 classListContainer.appendChild(classItem);
@@ -491,7 +478,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleAddClass() {
         const newClassName = newClassInput.value.trim();
         if (newClassName && !currentClasses.some(c => c.name === newClassName)) {
-            currentClasses.push({ name: newClassName, type: 'Areal', threshold: paramInputs.areal_threshold.value, color: getRandomRgbColor() });
+            currentClasses.push({ name: newClassName, type: 'Areal', color: getRandomRgbColor() });
             renderClasses();
             newClassInput.value = '';
         } else if (currentClasses.some(c => c.name === newClassName)) {
@@ -513,25 +500,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const classObj = currentClasses[index];
         const colorInput = classItem.querySelector('.class-color-input');
         const typeSelect = classItem.querySelector('.class-type-select');
-        const thresholdInput = classItem.querySelector('.class-threshold-input');
 
         if (colorInput.matches(':focus')) return;
 
         classObj.color = hexToRgb(colorInput.value);
         classObj.type = typeSelect.value;
 
-        let isReadOnly = true;
-        let newThreshold;
 
-        if (classObj.type === 'Areal') newThreshold = paramInputs.areal_threshold.value;
-        else if (classObj.type === 'Linear') newThreshold = paramInputs.linear_threshold.value;
-        else { isReadOnly = false; newThreshold = thresholdInput.value; }
-
-        classObj.threshold = newThreshold;
-        thresholdInput.value = newThreshold;
-        thresholdInput.readOnly = isReadOnly;
-        thresholdInput.classList.toggle('bg-gray-200', isReadOnly);
-        thresholdInput.classList.toggle('bg-white', !isReadOnly);
     }
 
     function setSelectedTiff(name) {
@@ -567,16 +542,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function collectFinalConfig() {
-        const classesToSend = currentClasses.map(classObj => {
-            let finalThreshold = classObj.threshold;
-            if (classObj.type === 'Areal') finalThreshold = paramInputs.areal_threshold.value;
-            if (classObj.type === 'Linear') finalThreshold = paramInputs.linear_threshold.value;
-            return { name: classObj.name, type: classObj.type, threshold: finalThreshold, color: classObj.color };
-        });
-
         const config = {
             tiff_file: selectedTiffName || '',
-            classes: classesToSend,
+            classes: currentClasses,
             params: {}
         };
         for (const key in paramInputs) {
@@ -591,6 +559,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleRunPipeline() {
+        if (!paramInputs.sam3_tile_batch_size.reportValidity()
+            || !paramInputs.sam3_confidence_threshold.reportValidity()) return;
         const config = collectFinalConfig();
         if (!config.tiff_file || config.classes.length === 0) return alert("Select a TIFF file and ensure classes are present.");
 
@@ -1073,7 +1043,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!finalUrl) { alert(`Mask for class "${className}" is not available.`); return; }
 
 
-        classDetailTitle.textContent = `Details for: ${className}`;
+        classDetailTitle.textContent = currentResultData.segmentation_model === 'sam3'
+            ? `Details for: ${className} (both views show the SAM 3 result)`
+            : `Details for: ${className}`;
         editMaskBtn.dataset.className = className;
         detailRgbImg.src = rgbUrl;
 
@@ -2758,9 +2730,6 @@ document.addEventListener('DOMContentLoaded', () => {
     closeWorldMapBtn.addEventListener('click', hideWorldMap);
     saveMapAreaBtn.addEventListener('click', handleSaveMapArea);
     paramInputs.semseg_combine_method.addEventListener('click', handleToggleButtons);
-    paramInputs.refiner_combine_method.addEventListener('click', handleToggleButtons);
-    paramInputs.areal_threshold.addEventListener('change', renderClasses);
-    paramInputs.linear_threshold.addEventListener('change', renderClasses);
     tiffPreviewContainer.addEventListener('click', (e) => {
         if (e.target.tagName === 'IMG') { openImageViewer(e.target.src); }
     });

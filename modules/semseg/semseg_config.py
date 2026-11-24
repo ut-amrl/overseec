@@ -100,6 +100,18 @@ class CLIPSegConfig(ModelConfig):
 
 
 @dataclass
+class SAM3Config(ModelConfig):
+    checkpoint_path: str = ""
+    # Filter whole detections using SAM 3's presence-weighted instance score.
+    confidence_threshold: float = 0.5
+    # Maximum tiles per SAM 3 call on one device. 1 uses the reference path.
+    tile_batch_size: int = 1
+    # SAM 3's processor owns resizing and normalization.
+    resize_shape: tuple | None = None
+    input_de_normalize: bool = False
+
+
+@dataclass
 class Mask_RefinerConfig():
     device : str = "cuda:0"
 

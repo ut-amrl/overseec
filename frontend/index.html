@@ -437,7 +437,7 @@
                     </div>
                 </div>
                 <div>
-                    <h3 class="text-lg font-semibold mb-2 text-gray-700">Refined Mask (SAM)</h3>
+                    <h3 class="text-lg font-semibold mb-2 text-gray-700">Final Mask</h3>
                     <div class="flex flex-row items-center gap-4">
                         <div class="relative flex-grow bg-gray-200 rounded-lg overflow-hidden border">
                             <img id="detail-refined-overlay-base" src="" alt="RGB base" class="w-full h-auto block">
@@ -604,63 +604,34 @@
                         Usage</button>
                 </div>
                 <div class="space-y-5">
-                    <div class="bg-gray-50 p-2 rounded-lg border border-gray-200">
-                        <label
-                            class="block text-xs font-bold text-gray-700 mb-1 uppercase tracking-wide">Thresholds</label>
-                        <div class="grid grid-cols-3 gap-x-2 gap-y-1 items-center">
-
-                            <!-- Header Row -->
-                            <div></div>
-                            <div class="text-xs font-bold text-center text-gray-500">Areal</div>
-                            <div class="text-xs font-bold text-center text-gray-500">Linear</div>
-
-                            <!-- SemSeg Row -->
-                            <div class="text-xs font-bold text-gray-700">SemSeg</div>
-                            <input type="number" id="areal-threshold" value="0.8" step="0.1"
-                                class="p-1 border border-gray-300 rounded text-center text-sm w-full h-7">
-                            <input type="number" id="linear-threshold" value="0.4" step="0.1"
-                                class="p-1 border border-gray-300 rounded text-center text-sm w-full h-7">
-
-                            <!-- Refiner Row -->
-                            <div class="text-xs font-bold text-gray-700">Refiner</div>
-                            <input type="number" id="refiner-areal-threshold" value="0.6" step="0.1"
-                                class="p-1 border border-gray-300 rounded text-center text-sm w-full h-7">
-                            <input type="number" id="refiner-linear-threshold" value="0.4" step="0.1"
-                                class="p-1 border border-gray-300 rounded text-center text-sm w-full h-7">
-                        </div>
+                    <div>
+                        <label for="sam3-confidence-threshold" class="block text-sm font-medium text-gray-700">SAM 3 detection confidence</label>
+                        <input type="number" id="sam3-confidence-threshold" value="0.5" step="0.01" min="0.01" max="0.99" required
+                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
                     </div>
-                    <div><label for="model-name" class="block text-sm font-medium text-gray-700">Model
-                            Name</label><select id="model-name"
-                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                            <option>clipseg</option>
-                            <option>segformer</option>
-                            <option>dinounet</option>
-                        </select></div>
-                    <div><label for="mask-refiner-name" class="block text-sm font-medium text-gray-700">Mask
-                            Refiner</label><select id="mask-refiner-name"
-                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                            <option>samrefiner</option>
-                            <option>samv1_exemplar</option>
-                        </select></div>
-                    <div><label for="sam-model" class="block text-sm font-medium text-gray-700">SAM Model</label><select
-                            id="sam-model" class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                            <option>vit_h</option>
-                            <option>vit_l</option>
-                            <option>vit_b</option>
-                        </select></div>
-                    <div class="grid grid-cols-3 gap-2">
+                    <div>
+                        <label for="sam3-tile-batch-size" class="block text-sm font-medium text-gray-700">SAM 3 tiles per GPU batch</label>
+                        <input type="number" id="sam3-tile-batch-size" value="1" step="1" min="1" required
+                            class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="block text-sm">Areal costmap cutoff
+                            <input type="number" id="refiner-areal-threshold" value="0.6" step="0.1"
+                                class="p-1 border border-gray-300 rounded w-full">
+                        </label>
+                        <label class="block text-sm">Linear costmap cutoff
+                            <input type="number" id="refiner-linear-threshold" value="0.4" step="0.1"
+                                class="p-1 border border-gray-300 rounded w-full">
+                        </label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
                         <div><label for="cmap-device"
                                 class="block text-sm font-medium text-gray-700">CMap</label><select id="cmap-device"
                                 class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
                                 <option>loading...</option>
                             </select></div>
-                        <div><label for="sam-device" class="block text-sm font-medium text-gray-700">SAM</label><select
-                                id="sam-device"
-                                class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
-                                <option>loading...</option>
-                            </select></div>
                         <div><label for="semseg-device"
-                                class="block text-sm font-medium text-gray-700">SemSeg</label><select id="semseg-device"
+                                class="block text-sm font-medium text-gray-700">SAM 3</label><select id="semseg-device"
                                 class="mt-1 block w-full p-2 border border-gray-300 rounded-md shadow-sm">
                                 <option>loading...</option>
                             </select></div>
@@ -672,22 +643,9 @@
                         <div><label for="semseg-stride" class="block text-sm font-medium text-gray-700">SemSeg
                                 Stride</label><input type="number" id="semseg-stride" value="256"
                                 class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
-                        <div><label for="refiner-tile-size" class="block text-sm font-medium text-gray-700">Refiner
-                                Tile</label><input type="number" id="refiner-tile-size" value="512"
-                                class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
-                        <div><label for="refiner-stride" class="block text-sm font-medium text-gray-700">Refiner
-                                Stride</label><input type="number" id="refiner-stride" value="256"
-                                class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></div>
                     </div>
                     <div><label class="block text-sm font-medium text-gray-700">SemSeg Combine Method</label>
                         <div id="semseg-combine-method" class="mt-1 flex rounded-md shadow-sm toggle-btn-group"><button
-                                type="button" data-value="max"
-                                class="active w-full py-2 px-4 border border-gray-300 rounded-l-md">Max</button><button
-                                type="button" data-value="mean"
-                                class="w-full py-2 px-4 border border-gray-300 -ml-px">Mean</button></div>
-                    </div>
-                    <div><label class="block text-sm font-medium text-gray-700">Refiner Combine Method</label>
-                        <div id="refiner-combine-method" class="mt-1 flex rounded-md shadow-sm toggle-btn-group"><button
                                 type="button" data-value="max"
                                 class="active w-full py-2 px-4 border border-gray-300 rounded-l-md">Max</button><button
                                 type="button" data-value="mean"

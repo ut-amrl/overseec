@@ -10,22 +10,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 
-from overseec.modules.semseg import *
-from overseec.modules.mask_refiner import *
+from overseec.modules.semseg import OVerSeeC_Semseg, SAM3
 from overseec.overseec_config import AllConfig
 
-
-
-model_dict = {
-    "dinounet": DinoUNet,
-    "segformer": SegFormer,
-    "clipseg": CLIPSeg,
-}
-
-mask_refiner_dict = {
-    "samrefiner": SamRefiner_wrapper,
-    "samv1_exemplar": Exemplar_Points_SAMv1_Mask_Refiner,
-}
 
 def temperature_sigmoid(x, temperature=1.0):
     return torch.sigmoid(x / temperature)
@@ -66,13 +53,17 @@ class OVerSeeC(nn.Module):
             )
         
 
-        if self.config.model_name == "clipseg":
-            semseg_model_class = CLIPSeg
-        elif self.config.model_name == "segformer":
-            semseg_model_class = SegFormer
-        elif self.config.model_name == "dinounet":
-            semseg_model_class = DinoUNet
+        if self.config.model_name == "sam3":
+            self.semseg.set_model(model_class=SAM3)
+            self.mask_refiner = None
+            return
 
+        if self.config.model_name == "clipseg":
+            from overseec.modules.semseg.model_clipseg import CLIPSeg as semseg_model_class
+        elif self.config.model_name == "segformer":
+            from overseec.modules.semseg.model_segformer import SegFormer as semseg_model_class
+        else:
+            from overseec.modules.semseg.model_dino_unet import DinoUNet as semseg_model_class
 
         self.semseg.set_model(model_class=semseg_model_class)
 
@@ -85,6 +76,10 @@ class OVerSeeC(nn.Module):
         
 
         ################# Setting Mask Refiner #################
+        from overseec.modules.mask_refiner import (
+            OVerSeeC_Mask_Refiner, SamRefiner_wrapper, Exemplar_Points_SAMv1_Mask_Refiner,
+        )
+
         self.mask_refiner = OVerSeeC_Mask_Refiner(self.config.semseg_config,
                                     self.config.mask_refiner_config)
         
@@ -120,7 +115,8 @@ class OVerSeeC(nn.Module):
         # self.semseg.model.semseg_config = self.config.semseg_config
         # self.semseg.model.model_config = self.config.model_config
         self.semseg.set_classes(classes=classes)
-        self.mask_refiner.set_classes(classes=classes)
+        if self.mask_refiner is not None:
+            self.mask_refiner.set_classes(classes=classes)
     
     def batch_crop_logits_and_image(self, logits_tensor, rgb_image):
 
@@ -207,9 +203,10 @@ class OVerSeeC(nn.Module):
 
             return patch_torch, (y, x)
 
-        # Generate (y, x) positions that **always align** with the image edges
-        y_positions = list(range(0, H - h + 1, stride)) + ([H - h] if (H - h) % stride != 0 else [])
-        x_positions = list(range(0, W - w + 1, stride)) + ([W - w] if (W - w) % stride != 0 else [])
+        # A small source image gets one padded tile on the affected axis.
+        last_y, last_x = max(0, H - h), max(0, W - w)
+        y_positions = list(range(0, last_y, stride)) + [last_y]
+        x_positions = list(range(0, last_x, stride)) + [last_x]
 
         # Process patches in parallel
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
@@ -348,10 +345,16 @@ class OVerSeeC(nn.Module):
         
         if tiff_img is None:
             tiff_img = cv2.imread(tiff_path_img)  # read a small patch of the image
+        if tiff_img is None:
+            raise ValueError(f'Could not read image: {tiff_path_img}')
         tiff_img = cv2.cvtColor(tiff_img, cv2.COLOR_BGR2RGB)  # Convert to RGB if needed
 
         # cv2.imwrite("rgb_image.png", cv2.cvtColor(tiff_img, cv2.COLOR_RGB2BGR))
         sigmoid_semseg_logits, semseg_logits_map, high_res_image = self.run_semseg(tiff_img)
+
+        if self.config.model_name == "sam3":
+            # Keep the five-value interface used by the mask-saving worker.
+            return sigmoid_semseg_logits, semseg_logits_map, None, sigmoid_semseg_logits, semseg_logits_map
 
         # logits to argmax
         semseg_map = torch.argmax(semseg_logits_map, dim=0)
@@ -420,14 +423,23 @@ class OVerSeeC(nn.Module):
                                      *self.config.sat_2_cmap_config.semseg_tile_size).to(self.config.semseg_config.device)
         
         for i, batch_input_dict in enumerate(tqdm(dataloader, desc="semseg")):
-            image_batch = batch_input_dict["image"].to(device=self.config.semseg_config.device)
-            # image_batch = image_batch.to(device=self.config.semseg_config.device)
-            semseg_logits_tile = self.semseg.get_semseg_logits(image_batch)
+            image_batch = batch_input_dict["image"]
+            if self.config.model_name == "sam3":
+                # The adapter gives the processor CPU RGB tiles. The processor
+                # transfers the prepared inputs to the GPU for inference.
+                semseg_logits_tile = self.semseg.model(image_batch)
+            else:
+                image_batch = image_batch.to(self.config.semseg_config.device)
+                semseg_logits_tile = self.semseg.get_semseg_logits(image_batch)
             semseg_logits_tiled[i * batch_size : (i+1) * batch_size] = semseg_logits_tile
         
 
-        semseg_logits_map  = self.combine_logits_threadsafe(semseg_logits_tiled, patch_positions, H_img, W_img,
-                                                    reduce_type="max")
+        reduce_type = "max"
+        if self.config.model_name == "sam3":
+            reduce_type = self.config.semseg_tile_combine_method
+        semseg_logits_map = self.combine_logits_threadsafe(
+            semseg_logits_tiled, patch_positions, H_img, W_img, reduce_type=reduce_type,
+        )
         
         sigmoid_semseg_logits = torch.sigmoid(semseg_logits_map)
 
@@ -507,8 +519,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to model checkpoint.")
-    parser.add_argument("--model", type=str, default="dinounet", choices=model_dict.keys())
-    parser.add_argument("--refiner", type=str, default="samrefiner", choices=mask_refiner_dict.keys())
+    parser.add_argument("--model", type=str, default="dinounet", choices=("dinounet", "segformer", "clipseg"))
+    parser.add_argument("--refiner", type=str, default="samrefiner", choices=("samrefiner", "samv1_exemplar"))
 
     args = parser.parse_args()
 

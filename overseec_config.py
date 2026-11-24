@@ -3,7 +3,6 @@ from dataclasses import dataclass, field
 from torchvision.transforms import ToTensor, Normalize, Compose
 
 from overseec.modules.semseg.semseg_config import *
-from overseec.modules.mask_refiner.mask_refiner_config import *
 
 
 
@@ -39,6 +38,8 @@ class AllConfig:
     mask_refiner_name : str = "samrefiner"
 
     model_ckpt : str = None
+    sam3_tile_batch_size: int = SAM3Config.tile_batch_size
+    sam3_confidence_threshold: float = SAM3Config.confidence_threshold
 
     # default classes - will be replaced by LLM output
     classes: dict = field(default_factory=lambda: {
@@ -78,6 +79,31 @@ class AllConfig:
         self.__post_init__()
 
     def __post_init__(self, ):
+        if self.model_name == "sam3":
+            tile_height, tile_width = self.semseg_tile_size
+            if not 1 <= self.semseg_stride <= min(tile_height, tile_width):
+                raise ValueError("SAM 3 stride must be positive and no larger than the tile.")
+            if self.semseg_tile_combine_method not in {"max", "mean"}:
+                raise ValueError("SAM 3 tile combine method must be max or mean.")
+            self.model_config = SAM3Config(
+                checkpoint_path=self.model_ckpt or "",
+                confidence_threshold=self.sam3_confidence_threshold,
+                tile_batch_size=self.sam3_tile_batch_size,
+            )
+            self.semseg_config = SemSegConfig(
+                device=self.semseg_device, classes=self.classes, use_default_classes=False,
+            )
+            self.semseg_config.batch_size = self.model_config.tile_batch_size
+            self.semseg_config.num_workers = 0
+            self.semseg_config.pin_memory = False
+            self.sat_2_cmap_config = Satellite_2_masks_config(
+                device=self.cmap_device,
+                semseg_tile_size=self.semseg_tile_size,
+                semseg_stride=self.semseg_stride,
+            )
+            self.img_transform = None
+            return
+
         if self.model_ckpt == "":
             raise ValueError
         
@@ -124,6 +150,8 @@ class AllConfig:
                 ]
             )
         
+        from overseec.modules.mask_refiner.mask_refiner_config import SAMRefiner_Config
+
         self.mask_refiner_config = SAMRefiner_Config(
             device=self.sam_device,
             use_negative_points=self.use_negative_points,

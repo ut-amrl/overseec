@@ -195,35 +195,28 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
         # Always ensure the TIFF is stored in results/<name>/original.tif
         tiff_folder_name = _ensure_tiff_in_results(tiff_filename)
 
-        clipseg_classes, clipseg_classes_semseg_knobs = {}, {}
+        classes = {}
         for class_obj in classes_data:
-            color_str = class_obj.get("color", "rgb(0,0,0)")
-            rgb_values = tuple(map(int, re.findall(r'\d+', color_str)))
-            clipseg_classes[class_obj["name"]] = rgb_values
-            clipseg_classes_semseg_knobs[class_obj["name"]] = float(class_obj["threshold"])
+            color = class_obj.get("color", "rgb(0,0,0)")
+            classes[class_obj["name"]] = tuple(map(int, re.findall(r"\d+", color)))
 
+        tile_size = int(params.get("semseg_tile_size", DEFAULT_PARAMS["semseg_tile_size"]))
         final_config = AllConfig(
-            model_ckpt="xyz", model_name=params.get("model_name"),
-            mask_refiner_name=params.get("mask_refiner_name"), classes=clipseg_classes,
-            classes_semseg_knobs=clipseg_classes_semseg_knobs,
-            semseg_tile_size=(int(params.get("semseg_tile_size")), int(params.get("semseg_tile_size"))),
-            semseg_stride=int(params.get("semseg_stride")), semseg_tile_combine_method=params.get("semseg_combine_method"),
-            mask_refiner_tile_size=(int(params.get("refiner_tile_size")), int(params.get("refiner_tile_size"))),
-            mask_refiner_stride=int(params.get("refiner_stride")), mask_refiner_tile_combine_method=params.get("refiner_combine_method"),
-            use_negative_points=True, sam_model=params.get("sam_model"), sam_device=params.get("sam_device"),
-            cmap_device=params.get("cmap_device"), semseg_device=params.get("semseg_device"),
+            model_name="sam3",
+            model_ckpt=os.environ.get("OVERSEEC_SAM3_CHECKPOINT"),
+            classes=classes,
+            sam3_tile_batch_size=int(params.get("sam3_tile_batch_size", DEFAULT_PARAMS["sam3_tile_batch_size"])),
+            sam3_confidence_threshold=float(params.get("sam3_confidence_threshold", DEFAULT_PARAMS["sam3_confidence_threshold"])),
+            semseg_tile_size=(tile_size, tile_size),
+            semseg_stride=int(params.get("semseg_stride", DEFAULT_PARAMS["semseg_stride"])),
+            semseg_tile_combine_method=params.get("semseg_combine_method", DEFAULT_PARAMS["semseg_combine_method"]),
+            semseg_device=params.get("semseg_device", DEFAULT_PARAMS["semseg_device"]),
         )
-        final_config.semseg_config.num_workers = 0
-        final_config.semseg_config.pin_memory = False
-        final_config.mask_refiner_config.num_workers = 0
-        final_config.mask_refiner_config.pin_memory = False
-        final_config.reset()
-        print("\n--- CONFIGURATION SET FOR PIPELINE RUN ---"); print(final_config); print("------------------------------------------\n")
-        
-        print(f"Running OVerSeeC model on: {sat_img_path}")
+        print(f"Running SAM 3 on {sat_img_path} with up to {final_config.sam3_tile_batch_size} tiles per batch "
+              f"and confidence threshold {final_config.sam3_confidence_threshold}.")
         overseec_sat_2_mask = OVerSeeC(config=final_config)
-        (clipseg_sigmoid_mask_refiner_logits, _, _, clipseg_sigmoid_semseg_logits, _) = overseec_sat_2_mask(sat_img_path, None)
-        
+        scores, _, _, _, _ = overseec_sat_2_mask(sat_img_path)
+
         # Save to mask/temp_latest inside the tiff's results folder
         temp_dir = os.path.join(RESULTS_FOLDER, tiff_folder_name, "mask", "temp_latest")
         # Clean up old temp_latest if it exists
@@ -238,7 +231,7 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
         url_prefix = f"{tiff_folder_name}/mask/temp_latest"
 
         semantic_masks_urls, refined_masks_urls = {}, {}
-        class_names = list(clipseg_classes.keys())
+        class_names = list(classes)
         
         for i, class_name in enumerate(class_names):
             class_name_safe = class_name.replace(" ", "_")
@@ -246,7 +239,7 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
             # --- Save PNG and NPY for Semantic Mask ---
             sem_path = os.path.join(semantic_mask_dir, f"{class_name_safe}.png")
             sem_npy_path = os.path.join(semantic_mask_dir, f"{class_name_safe}.npy")
-            sem_tensor_slice = clipseg_sigmoid_semseg_logits[i]
+            sem_tensor_slice = scores[i]
             save_tensor_as_image(sem_tensor_slice, sem_path)
             sem_numpy_array = sem_tensor_slice.cpu().numpy() if hasattr(sem_tensor_slice, 'cpu') else np.array(sem_tensor_slice)
             np.save(sem_npy_path, sem_numpy_array)
@@ -255,7 +248,7 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
             # --- Save PNG and NPY for Refined Mask ---
             ref_path = os.path.join(refined_mask_dir, f"{class_name_safe}.png")
             ref_npy_path = os.path.join(refined_mask_dir, f"{class_name_safe}.npy")
-            ref_tensor_slice = clipseg_sigmoid_mask_refiner_logits[i]
+            ref_tensor_slice = scores[i]
             save_tensor_as_image(ref_tensor_slice, ref_path)
             ref_numpy_array = ref_tensor_slice.cpu().numpy() if hasattr(ref_tensor_slice, 'cpu') else np.array(ref_tensor_slice)
             np.save(ref_npy_path, ref_numpy_array)
@@ -263,7 +256,8 @@ def pipeline_worker(log_q, task_id, tiff_filename, classes_data, params):
 
         print("--- Model processing complete, masks saved to mask/temp_latest. ---")
         results_data = {
-            "message": "Pipeline completed successfully!",
+            "message": "SAM 3 completed successfully!",
+            "segmentation_model": "sam3",
             "semantic_masks": semantic_masks_urls,
             "refined_masks": refined_masks_urls,
             "tiff_folder": tiff_folder_name
@@ -301,20 +295,15 @@ TEMP_PARAMS_FILE = os.path.join(_basedir, "temp_parameters.json")
 
 # Default parameters
 DEFAULT_PARAMS = {
-    "areal_threshold": "0.8",
-    "linear_threshold": "0.4",
-    "model_name": "clipseg",
-    "mask_refiner_name": "samrefiner",
-    "sam_model": "vit_h",
+    "sam3_confidence_threshold": str(AllConfig.sam3_confidence_threshold) if AllConfig else "0.5",
+    "sam3_tile_batch_size": str(AllConfig.sam3_tile_batch_size) if AllConfig else "1",
+    "refiner_areal_threshold": "0.6",
+    "refiner_linear_threshold": "0.4",
     "cmap_device": "cuda:0",
-    "sam_device": "cuda:0",
     "semseg_device": "cuda:0",
     "semseg_tile_size": "512",
     "semseg_stride": "256",
-    "refiner_tile_size": "512",
-    "refiner_stride": "256",
     "semseg_combine_method": "max",
-    "refiner_combine_method": "max"
 }
 
 # --- Flask App Initialization ---
