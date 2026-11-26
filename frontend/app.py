@@ -1092,7 +1092,7 @@ def get_result_folders():
 @app.route("/api/browse-results", methods=["POST"])
 def browse_results():
     """Browse the results folder structure. Returns list of items at the given subpath.
-    mode: 'tiff' = only show tiff files (hide mask dirs), 'masks' = only show dirs (hide files), 'all' = show everything
+    In 'masks' mode, show folders and downloadable PNG/NPY mask files.
     """
     data = request.json or {}
     subpath = data.get("path", "")
@@ -1138,8 +1138,8 @@ def browse_results():
                 
                 items.append({"name": name, "type": "dir", "has_masks": has_refined})
             else:
-                if mode == "masks":
-                    # In masks mode, skip all files (we only want dirs)
+                if mode == "masks" and not name.lower().endswith((".png", ".npy")):
+                    # Keep mask previews and full-precision arrays available to download.
                     continue
                     
                 items.append({"name": name, "type": "file"})
